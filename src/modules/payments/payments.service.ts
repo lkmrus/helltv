@@ -42,39 +42,121 @@ export class PaymentsService {
     let amount: number;
     let product: Product | undefined = undefined;
     const meta: Record<string, any> = { provider: 'stub' };
+    let transaction;
 
     if (productId) {
-      // Purchase flow
+      // Purchase flow with partial payment support
       product = await this.productsService.findById(productId);
-      amount = product.price.toNumber();
+      const productPrice = product.price.toNumber();
+      const userBalance = userAccount.balance.toNumber();
+
       meta.productId = productId;
       meta.purpose = 'purchase';
-      this.logger.log(
-        `[PAYMENT] Begin purchase flow userId=${userId} productId=${productId} amount=$${amount}`,
-      );
+
+      // Check if user has sufficient balance
+      if (userBalance >= productPrice) {
+        throw new BadRequestException(
+          `You have sufficient balance ($${userBalance}). Use POST /orders/create to purchase directly from balance.`,
+        );
+      }
+
+      // Check if partial payment is needed
+      if (userBalance > 0) {
+        // PARTIAL PAYMENT: user has some balance but not enough
+        this.logger.log(
+          `[PAYMENT] Begin partial payment: userId=${userId} productId=${productId} balance=$${userBalance} price=$${productPrice}`,
+        );
+
+        const balancePart = userBalance;
+        const cardPart = productPrice - userBalance;
+
+        meta.partial = true;
+        meta.balancePart = balancePart;
+        meta.cardPart = cardPart;
+
+        // Create first PRODUCT_PURCHASE transaction (from balance)
+        const balanceTransaction =
+          await this.transactionsService.initiateTransfer(
+            userAccount.id,
+            serviceAccount.id,
+            balancePart,
+            TransactionType.PRODUCT_PURCHASE,
+            {
+              productId,
+              partial: true,
+              partialType: 'balance',
+              source: 'balance',
+            },
+          );
+
+        // Complete balance transaction immediately
+        await this.transactionsService.completeImmediately(
+          balanceTransaction.id,
+        );
+
+        this.logger.log(
+          `[PAYMENT] Partial payment - balance part completed: txn=${balanceTransaction.id} amount=$${balancePart}`,
+        );
+
+        // Store link to balance transaction
+        meta.linkedTransactionId = balanceTransaction.id;
+
+        // Create ACCOUNT_REFILL for card part
+        transaction = await this.transactionsService.initiateTransfer(
+          serviceAccount.id,
+          userAccount.id,
+          cardPart,
+          TransactionType.ACCOUNT_REFILL,
+          meta,
+        );
+
+        amount = cardPart;
+
+        this.logger.log(
+          `[PAYMENT] Partial payment - card part pending: txn=${transaction!.id} amount=$${cardPart}`,
+        );
+      } else {
+        // FULL CARD PAYMENT: user has zero balance
+        amount = productPrice;
+        transaction = await this.transactionsService.initiateTransfer(
+          serviceAccount.id,
+          userAccount.id,
+          amount,
+          TransactionType.ACCOUNT_REFILL,
+          meta,
+        );
+
+        this.logger.log(
+          `[PAYMENT] Begin full card payment: userId=${userId} productId=${productId} amount=$${amount}`,
+        );
+      }
     } else {
       // Simple refill flow (for testing)
       amount = 100; // Default refill amount for MVP
       meta.purpose = 'refill';
+
+      transaction = await this.transactionsService.initiateTransfer(
+        serviceAccount.id,
+        userAccount.id,
+        amount,
+        TransactionType.ACCOUNT_REFILL,
+        meta,
+      );
+
       this.logger.log(
         `[PAYMENT] Begin refill flow userId=${userId} amount=$${amount}`,
       );
     }
 
-    // 4. Create HOLD transaction (ACCOUNT_REFILL: service -> user)
-    // This represents external funds coming into user's account
-    const transaction = await this.transactionsService.initiateTransfer(
-      serviceAccount.id, // From service (virtual external source)
-      userAccount.id, // To user
-      amount,
-      TransactionType.ACCOUNT_REFILL,
-      meta,
-    );
+    // 5. Ensure transaction is defined
+    if (!transaction) {
+      throw new BadRequestException('Failed to create transaction');
+    }
 
-    // 5. Create provider session (stub)
+    // 6. Create provider session (stub)
     const session = this.stubProvider.createSession(transaction, user, product);
 
-    // 6. Update transaction with provider identifiers
+    // 7. Update transaction with provider identifiers
     await this.prisma.transaction.update({
       where: { id: transaction.id },
       data: {

@@ -51,11 +51,90 @@ export class TransactionsService {
       },
     });
 
+    const amountStr =
+      typeof amount === 'number' ? amount : amountDecimal.toNumber();
     this.logger.log(
-      `[TRANSACTION] Initiated ${type} txn=${transaction.id} A(${accountAId}) -> B(${accountBId}) amount=${amount} USD`,
+      `[TRANSACTION] Initiated ${type} txn=${transaction.id} A(${accountAId}) -> B(${accountBId}) amount=${amountStr} USD`,
     );
 
     return transaction;
+  }
+
+  /**
+   * Complete transaction immediately without creating Order
+   * Used for direct balance purchases and partial payments
+   */
+  async completeImmediately(transactionId: string): Promise<Transaction> {
+    let completedTransaction: Transaction | null = null;
+
+    await this.prisma.$transaction(async (tx) => {
+      const transaction = await tx.transaction.findUnique({
+        where: { id: transactionId },
+      });
+
+      if (!transaction) {
+        throw new BadRequestException(`Transaction ${transactionId} not found`);
+      }
+
+      if (transaction.state === TransactionState.COMPLETED) {
+        this.logger.log(
+          `[TRANSACTION] Already completed txn=${transactionId} (idempotent)`,
+        );
+        completedTransaction = transaction;
+        return;
+      }
+
+      if (
+        transaction.state !== TransactionState.PENDING &&
+        transaction.state !== TransactionState.HOLD
+      ) {
+        throw new BadRequestException(
+          `Transaction ${transactionId} has invalid state: ${transaction.state}`,
+        );
+      }
+
+      // Apply balance changes
+      await this.accountsService.applyComplete(transaction, tx);
+
+      completedTransaction = await tx.transaction.update({
+        where: { id: transactionId },
+        data: {
+          state: TransactionState.COMPLETED,
+          completedAt: new Date(),
+        },
+      });
+
+      this.logger.log(
+        `[TRANSACTION] Completed immediately txn=${transactionId} type=${transaction.type}`,
+      );
+    });
+
+    if (!completedTransaction) {
+      throw new BadRequestException(
+        `Failed to complete transaction ${transactionId}`,
+      );
+    }
+
+    // Type assertion: completedTransaction is definitely not null after the check
+    const txn = completedTransaction as Transaction;
+
+    // Emit events after commit
+    this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
+      accountId: txn.accountAId,
+      transactionId,
+    });
+
+    this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
+      accountId: txn.accountBId,
+      transactionId,
+    });
+
+    this.eventEmitter.emit('TRANSACTION_CHANGED', {
+      transactionId,
+      state: TransactionState.COMPLETED,
+    });
+
+    return txn;
   }
 
   /**
@@ -106,6 +185,10 @@ export class TransactionsService {
       // 3. Check if this is a purchase (has productId in meta)
       const meta = JSON.parse(refillTransaction.meta) as Record<string, any>;
       const productId = meta?.productId as number;
+      const isPartialPayment = meta?.partial === true;
+      const linkedTransactionId = meta?.linkedTransactionId as
+        | string
+        | undefined;
 
       if (productId) {
         // Get product and user info
@@ -127,7 +210,94 @@ export class TransactionsService {
           where: { userId: sellerUserId },
         });
 
-        // Create Order
+        let cardPurchaseTransaction;
+        const purchaseTransactionIds: string[] = [];
+
+        if (isPartialPayment && linkedTransactionId) {
+          // PARTIAL PAYMENT: create second PRODUCT_PURCHASE for card part
+          // First part (balance) was already completed before refill
+
+          const balanceTransaction = await tx.transaction.findUnique({
+            where: { id: linkedTransactionId },
+          });
+
+          if (!balanceTransaction) {
+            throw new BadRequestException(
+              `Linked transaction ${linkedTransactionId} not found`,
+            );
+          }
+
+          purchaseTransactionIds.push(balanceTransaction.id);
+
+          // Create second PRODUCT_PURCHASE for card part (after refill)
+          cardPurchaseTransaction = await tx.transaction.create({
+            data: {
+              type: TransactionType.PRODUCT_PURCHASE,
+              state: TransactionState.HOLD,
+              accountAId: buyerAccountId,
+              accountBId: sellerAccount!.id,
+              amountOut: refillTransaction.amountIn, // Card part amount
+              amountIn: refillTransaction.amountIn,
+              currency: 'USD',
+              meta: JSON.stringify({
+                productId,
+                partial: true,
+                partialType: 'card_refill',
+                linkedTransactionId: balanceTransaction.id,
+              }),
+            },
+          });
+
+          // Apply card purchase balance changes
+          await this.accountsService.applyComplete(cardPurchaseTransaction, tx);
+
+          await tx.transaction.update({
+            where: { id: cardPurchaseTransaction.id },
+            data: {
+              state: TransactionState.COMPLETED,
+              completedAt: new Date(),
+            },
+          });
+
+          purchaseTransactionIds.push(cardPurchaseTransaction.id);
+
+          this.logger.log(
+            `[TRANSACTION] Partial payment completed: balance txn=${balanceTransaction.id} ($${balanceTransaction.amountOut.toNumber()}) + card txn=${cardPurchaseTransaction.id} ($${cardPurchaseTransaction.amountOut.toNumber()}) = total $${product.price.toNumber()}`,
+          );
+        } else {
+          // FULL CARD PAYMENT: create single PRODUCT_PURCHASE transaction
+          cardPurchaseTransaction = await tx.transaction.create({
+            data: {
+              type: TransactionType.PRODUCT_PURCHASE,
+              state: TransactionState.HOLD,
+              accountAId: buyerAccountId,
+              accountBId: sellerAccount!.id,
+              amountOut: product.price,
+              amountIn: product.price,
+              currency: 'USD',
+              meta: JSON.stringify({ productId }),
+            },
+          });
+
+          // Apply purchase balance changes
+          await this.accountsService.applyComplete(cardPurchaseTransaction, tx);
+
+          await tx.transaction.update({
+            where: { id: cardPurchaseTransaction.id },
+            data: {
+              state: TransactionState.COMPLETED,
+              completedAt: new Date(),
+            },
+          });
+
+          purchaseTransactionIds.push(cardPurchaseTransaction.id);
+
+          this.logger.log(
+            `[TRANSACTION] Full card payment completed: txn=${cardPurchaseTransaction.id} amount=$${product.price.toNumber()} USD`,
+          );
+        }
+
+        // Create Order (always with full product price)
         const order = await tx.order.create({
           data: {
             productId,
@@ -140,40 +310,11 @@ export class TransactionsService {
         });
 
         this.logger.log(
-          `[ORDER] Created orderId=${order.id} productId=${productId} buyer=${buyerUserId} seller=${sellerUserId} total=$${product.price} USD`,
+          `[ORDER] Created orderId=${order.id} productId=${productId} buyer=${buyerUserId} seller=${sellerUserId} total=$${product.price.toNumber()} USD`,
         );
 
-        // Create and immediately complete PRODUCT_PURCHASE transaction
-        const purchaseTransaction = await tx.transaction.create({
-          data: {
-            type: TransactionType.PRODUCT_PURCHASE,
-            state: TransactionState.HOLD,
-            accountAId: buyerAccountId,
-            accountBId: sellerAccount!.id,
-            amountOut: product.price,
-            amountIn: product.price,
-            currency: 'USD',
-            meta: JSON.stringify({ orderId: order.id, productId }),
-          },
-        });
-
-        // Apply purchase balance changes
-        await this.accountsService.applyComplete(purchaseTransaction, tx);
-
-        await tx.transaction.update({
-          where: { id: purchaseTransaction.id },
-          data: {
-            state: TransactionState.COMPLETED,
-            completedAt: new Date(),
-          },
-        });
-
-        this.logger.log(
-          `[TRANSACTION] Product purchase COMPLETED txn=${purchaseTransaction.id} buyer=${buyerUserId} -> seller=${sellerUserId} amount=$${product.price} USD`,
-        );
-
-        // Store purchase transaction for events
-        meta.purchaseTransactionId = purchaseTransaction.id;
+        // Store purchase transaction(s) and order for events
+        meta.purchaseTransactionIds = purchaseTransactionIds;
         meta.orderId = order.id;
       }
 
@@ -204,15 +345,20 @@ export class TransactionsService {
     if (meta.orderId) {
       this.eventEmitter.emit('ORDER_CREATED', { orderId: meta.orderId });
 
-      this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
-        accountId: completedTransaction.accountAId,
-        transactionId: meta.purchaseTransactionId as string,
-      });
+      // Emit events for all purchase transactions (one or two for partial payment)
+      const purchaseTransactionIds = (meta.purchaseTransactionIds ||
+        []) as string[];
+      for (const purchaseTxnId of purchaseTransactionIds) {
+        this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
+          accountId: completedTransaction.accountAId,
+          transactionId: purchaseTxnId,
+        });
 
-      this.eventEmitter.emit('TRANSACTION_CHANGED', {
-        transactionId: meta.purchaseTransactionId as string,
-        state: TransactionState.COMPLETED,
-      });
+        this.eventEmitter.emit('TRANSACTION_CHANGED', {
+          transactionId: purchaseTxnId,
+          state: TransactionState.COMPLETED,
+        });
+      }
     }
 
     this.logger.log(`[EVENT] Published events for txn=${transactionId}`);

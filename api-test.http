@@ -77,3 +77,74 @@ GET http://localhost:3050/transactions/PUT_TRANSACTION_ID_HERE
 
 ### Get order by id
 GET http://localhost:3050/orders/PUT_ORDER_ID_HERE
+
+### === DIRECT PURCHASE FROM BALANCE ===
+
+### Create order directly from balance (user must have sufficient balance)
+POST http://localhost:3050/orders/create
+Content-Type: application/json
+
+{
+  "userId": 2,
+  "productId": 1
+}
+
+### Response example:
+# {
+#   "id": "uuid-here",
+#   "productId": 1,
+#   "buyerUserId": 2,
+#   "sellerUserId": 1,
+#   "totalPrice": "100",
+#   "currency": "USD",
+#   "status": "PAID",
+#   "createdAt": "...",
+#   "updatedAt": "..."
+# }
+
+### === PARTIAL PAYMENT (Balance + Card) ===
+
+### Scenario: User has $30 balance, product costs $100
+### Step 1: Check initial balance (should be partial)
+GET http://localhost:3050/accounts/user/2
+
+### Step 2: Create payment link (will use $30 from balance + $70 card)
+# System will automatically:
+# - Deduct $30 from balance immediately (PRODUCT_PURCHASE #1)
+# - Create payment link for remaining $70 (ACCOUNT_REFILL)
+# - Return payment URL for $70 card payment
+POST http://localhost:3050/payments/url
+Content-Type: application/json
+
+{
+  "userId": 2,
+  "productId": 1
+}
+
+### Response example for partial payment:
+# {
+#   "url": "http://stub.local/pay/stub_session_xxx",
+#   "transactionId": "refill-txn-uuid",      # ACCOUNT_REFILL for $70
+#   "paymentIntentId": "stub_pi_xxx"
+# }
+# Note: $30 already deducted from balance at this point
+
+### Step 3: Complete card payment ($70) via webhook
+POST http://localhost:3050/payments/provider/webhook
+Content-Type: application/json
+
+{
+  "type": "payment.success",
+  "transactionId": "PUT_REFILL_TXN_ID_HERE",
+  "paymentIntentId": "PUT_PAYMENT_INTENT_ID_HERE",
+  "amount": 70,
+  "metadata": {
+    "provider": "stub"
+  }
+}
+
+### Step 4: Verify final balance (should be unchanged: -$30 balance, +$70 refill, -$70 purchase)
+GET http://localhost:3050/accounts/user/2
+
+### Step 5: Check created order (totalPrice should be $100)
+GET http://localhost:3050/orders/PUT_ORDER_ID_HERE
