@@ -1,150 +1,199 @@
-### === PRODUCTS ===
+### ============================================
+### HELLTV Payment Service - API Tests
+### PostgreSQL + Redis + Balance Audit System
+### ============================================
 
-### Get all products
-GET http://localhost:3050/products
+@baseUrl = http://localhost:3050
+@userId = 1
+@productId = 1
 
-### === ACCOUNTS ===
+### ============================================
+### 1. PRODUCTS - Get all products
+### ============================================
+GET {{baseUrl}}/products
+Content-Type: application/json
 
-### Get user account (user id=2)
-GET http://localhost:3050/accounts/user/2
+### ============================================
+### 2. ACCOUNTS - Get user balance
+### ============================================
+GET {{baseUrl}}/accounts/user/{{userId}}
+Content-Type: application/json
 
-### Get service account (user id=1)
-GET http://localhost:3050/accounts/user/1
+### ============================================
+### 3. ACCOUNTS - Get transaction history
+### ============================================
+GET {{baseUrl}}/accounts/user/{{userId}}/history
+Content-Type: application/json
 
-### === PAYMENTS ===
+### ============================================
+### 4. ACCOUNTS - Audit balance (check consistency)
+### ============================================
+GET {{baseUrl}}/accounts/user/{{userId}}/audit
+Content-Type: application/json
 
-### Create payment link for product purchase
-POST http://localhost:3050/payments/url
+### ============================================
+### 5. ACCOUNTS - Credit balance (пополнение)
+### Description: Add money to user account from service
+### ============================================
+POST {{baseUrl}}/accounts/user/{{userId}}/credit
 Content-Type: application/json
 
 {
-  "userId": 2,
-  "productId": 1
+  "amount": 500.00,
+  "description": "Test credit - add $500"
 }
 
-### Response example:
-# {
-#   "url": "http://stub.local/pay/stub_session_xxx",
-#   "transactionId": "uuid-here",
-#   "paymentIntentId": "stub_pi_xxx"
-# }
-
-### Create payment link for simple refill (no product)
-POST http://localhost:3050/payments/url
+### ============================================
+### 6. ACCOUNTS - Debit balance (списание)
+### Description: Remove money from user account
+### ============================================
+POST {{baseUrl}}/accounts/user/{{userId}}/debit
 Content-Type: application/json
 
 {
-  "userId": 2
+  "amount": 50.00,
+  "description": "Test debit - remove $50"
 }
 
-### === WEBHOOKS ===
-
-### Simulate successful payment webhook
-# Replace transactionId and paymentIntentId with values from create-payment response
-POST http://localhost:3050/payments/provider/webhook
+### ============================================
+### 7. ACCOUNTS - Debit with product purchase
+### Description: Debit + create Order atomically
+### ============================================
+POST {{baseUrl}}/accounts/user/{{userId}}/debit
 Content-Type: application/json
 
 {
-  "type": "payment.success",
-  "transactionId": "PUT_TRANSACTION_ID_HERE",
-  "paymentIntentId": "PUT_PAYMENT_INTENT_ID_HERE",
-  "amount": 100,
-  "metadata": {
-    "provider": "stub"
-  }
+  "amount": 100.00,
+  "productId": {{productId}},
+  "description": "Purchase product #1"
 }
 
-### Simulate failed payment webhook
-POST http://localhost:3050/payments/provider/webhook
+### ============================================
+### 8. ORDERS - Purchase product from balance
+### Description: Alternative way to purchase (uses debit internally)
+### ============================================
+POST {{baseUrl}}/orders/create
 Content-Type: application/json
 
 {
-  "type": "payment.failed",
-  "transactionId": "PUT_TRANSACTION_ID_HERE",
-  "paymentIntentId": "PUT_PAYMENT_INTENT_ID_HERE",
-  "metadata": {
-    "provider": "stub",
-    "error": "Payment declined"
-  }
+  "userId": {{userId}},
+  "productId": {{productId}}
 }
 
-### === TRANSACTIONS ===
+### ============================================
+### 9. ORDERS - Get order details
+### Replace {orderId} with actual order ID from previous response
+### ============================================
+# GET {{baseUrl}}/orders/{orderId}
+# Content-Type: application/json
 
-### Get transaction by id
-GET http://localhost:3050/transactions/PUT_TRANSACTION_ID_HERE
+### ============================================
+### 10. TRANSACTIONS - Get transaction details
+### Replace {transactionId} with actual transaction ID
+### ============================================
+# GET {{baseUrl}}/transactions/{transactionId}
+# Content-Type: application/json
 
-### === ORDERS ===
+### ============================================
+### SCENARIO 1: Full user flow - Credit → Purchase
+### ============================================
 
-### Get order by id
-GET http://localhost:3050/orders/PUT_ORDER_ID_HERE
+### Step 1: Check initial balance
+GET {{baseUrl}}/accounts/user/{{userId}}
 
-### === DIRECT PURCHASE FROM BALANCE ===
-
-### Create order directly from balance (user must have sufficient balance)
-POST http://localhost:3050/orders/create
+### Step 2: Add $500 to balance
+POST {{baseUrl}}/accounts/user/{{userId}}/credit
 Content-Type: application/json
 
 {
-  "userId": 2,
-  "productId": 1
+  "amount": 500.00,
+  "description": "Initial credit"
 }
 
-### Response example:
-# {
-#   "id": "uuid-here",
-#   "productId": 1,
-#   "buyerUserId": 2,
-#   "sellerUserId": 1,
-#   "totalPrice": "100",
-#   "currency": "USD",
-#   "status": "PAID",
-#   "createdAt": "...",
-#   "updatedAt": "..."
-# }
+### Step 3: Check balance after credit
+GET {{baseUrl}}/accounts/user/{{userId}}
 
-### === PARTIAL PAYMENT (Balance + Card) ===
+### Step 4: Audit balance (should be consistent)
+GET {{baseUrl}}/accounts/user/{{userId}}/audit
 
-### Scenario: User has $30 balance, product costs $100
-### Step 1: Check initial balance (should be partial)
-GET http://localhost:3050/accounts/user/2
-
-### Step 2: Create payment link (will use $30 from balance + $70 card)
-# System will automatically:
-# - Deduct $30 from balance immediately (PRODUCT_PURCHASE #1)
-# - Create payment link for remaining $70 (ACCOUNT_REFILL)
-# - Return payment URL for $70 card payment
-POST http://localhost:3050/payments/url
+### Step 5: Purchase product ($100)
+POST {{baseUrl}}/orders/create
 Content-Type: application/json
 
 {
-  "userId": 2,
-  "productId": 1
+  "userId": {{userId}},
+  "productId": {{productId}}
 }
 
-### Response example for partial payment:
-# {
-#   "url": "http://stub.local/pay/stub_session_xxx",
-#   "transactionId": "refill-txn-uuid",      # ACCOUNT_REFILL for $70
-#   "paymentIntentId": "stub_pi_xxx"
-# }
-# Note: $30 already deducted from balance at this point
+### Step 6: Check balance after purchase (should be $500 - $100 = $400)
+GET {{baseUrl}}/accounts/user/{{userId}}
 
-### Step 3: Complete card payment ($70) via webhook
-POST http://localhost:3050/payments/provider/webhook
+### Step 7: Audit balance again
+GET {{baseUrl}}/accounts/user/{{userId}}/audit
+
+### Step 8: Check transaction history
+GET {{baseUrl}}/accounts/user/{{userId}}/history
+
+### ============================================
+### SCENARIO 2: Insufficient balance test
+### ============================================
+
+### Step 1: Try to purchase without enough balance
+### This should fail with "Insufficient balance" error
+POST {{baseUrl}}/accounts/user/{{userId}}/debit
 Content-Type: application/json
 
 {
-  "type": "payment.success",
-  "transactionId": "PUT_REFILL_TXN_ID_HERE",
-  "paymentIntentId": "PUT_PAYMENT_INTENT_ID_HERE",
-  "amount": 70,
-  "metadata": {
-    "provider": "stub"
-  }
+  "amount": 999999.00,
+  "productId": {{productId}},
+  "description": "Should fail - not enough balance"
 }
 
-### Step 4: Verify final balance (should be unchanged: -$30 balance, +$70 refill, -$70 purchase)
-GET http://localhost:3050/accounts/user/2
+### ============================================
+### SCENARIO 3: Multiple operations + audit
+### ============================================
 
-### Step 5: Check created order (totalPrice should be $100)
-GET http://localhost:3050/orders/PUT_ORDER_ID_HERE
+### Credit $1000
+POST {{baseUrl}}/accounts/user/{{userId}}/credit
+Content-Type: application/json
+
+{
+  "amount": 1000.00,
+  "description": "Large credit"
+}
+
+### Debit $200
+POST {{baseUrl}}/accounts/user/{{userId}}/debit
+Content-Type: application/json
+
+{
+  "amount": 200.00,
+  "description": "Debit $200"
+}
+
+### Debit $300
+POST {{baseUrl}}/accounts/user/{{userId}}/debit
+Content-Type: application/json
+
+{
+  "amount": 300.00,
+  "description": "Debit $300"
+}
+
+### Credit $500
+POST {{baseUrl}}/accounts/user/{{userId}}/credit
+Content-Type: application/json
+
+{
+  "amount": 500.00,
+  "description": "Another credit"
+}
+
+### Check balance
+GET {{baseUrl}}/accounts/user/{{userId}}
+
+### Audit (should pass)
+GET {{baseUrl}}/accounts/user/{{userId}}/audit
+
+### Check history
+GET {{baseUrl}}/accounts/user/{{userId}}/history

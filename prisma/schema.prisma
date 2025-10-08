@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 // User roles: SERVICE (id=1) for service account, USER for regular users
@@ -54,10 +54,10 @@ model Product {
   orders Order[]
 }
 
-// Transaction types: ACCOUNT_REFILL (external payment), PRODUCT_PURCHASE (internal)
+// Transaction types: CREDIT (incoming), DEBIT (outgoing)
 enum TransactionType {
-  ACCOUNT_REFILL
-  PRODUCT_PURCHASE
+  CREDIT
+  DEBIT
 }
 
 // Transaction states: PENDING, HOLD, COMPLETED, FAILED
@@ -82,11 +82,7 @@ model Transaction {
   
   currency String @default("USD") // Hardcoded to USD for MVP
   
-  meta     String  @default("{}") // JSON metadata: { provider, productId, purpose, etc }
-  
-  // Provider identifiers for idempotency
-  providerSessionId String? @unique
-  paymentIntentId   String? @unique
+  meta     String  @default("{}") // JSON metadata: { productId, purpose, description, etc }
   
   createdAt   DateTime  @default(now())
   completedAt DateTime?

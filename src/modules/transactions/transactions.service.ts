@@ -1,4 +1,9 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AccountsService } from '../accounts/accounts.service';
 import { Transaction, TransactionType, TransactionState } from '@prisma/client';
@@ -16,395 +21,285 @@ export class TransactionsService {
   ) {}
 
   /**
-   * Initiate a transfer by creating a HOLD transaction
-   * For external payments (ACCOUNT_REFILL) or internal purchases (PRODUCT_PURCHASE)
+   * Calculate balance from transaction history
+   * This is the source of truth for account balance
    */
-  async initiateTransfer(
-    accountAId: number,
-    accountBId: number,
-    amount: number | Decimal,
-    type: TransactionType,
-    meta: Record<string, any> = {},
-  ): Promise<Transaction> {
-    if (accountAId === accountBId) {
-      throw new BadRequestException(
-        'Source and destination accounts must be different',
+  async calculateBalanceFromHistory(accountId: number): Promise<Decimal> {
+    const account = await this.accountsService.getById(accountId);
+
+    // Get all completed transactions for this account
+    const transactions = await this.prisma.transaction.findMany({
+      where: {
+        state: TransactionState.COMPLETED,
+        OR: [{ accountAId: accountId }, { accountBId: accountId }],
+      },
+    });
+
+    // Calculate: initial balance + incoming - outgoing
+    let calculatedBalance = new Decimal(0);
+
+    for (const tx of transactions) {
+      if (tx.accountBId === accountId) {
+        // Incoming transaction
+        calculatedBalance = calculatedBalance.plus(tx.amountIn);
+      }
+      if (tx.accountAId === accountId) {
+        // Outgoing transaction
+        calculatedBalance = calculatedBalance.minus(tx.amountOut);
+      }
+    }
+
+    this.logger.log(
+      `[AUDIT] Account ${accountId} calculated balance from history: ${calculatedBalance.toNumber()}`,
+    );
+
+    return calculatedBalance;
+  }
+
+  /**
+   * Audit account balance against transaction history
+   * Throws error if mismatch detected
+   */
+  async auditBalance(accountId: number): Promise<void> {
+    const account = await this.accountsService.getById(accountId);
+    const calculatedBalance = await this.calculateBalanceFromHistory(accountId);
+
+    const currentBalance = account.balance;
+    const diff = currentBalance.minus(calculatedBalance).abs();
+
+    if (diff.greaterThan(0.01)) {
+      const errorMsg = `[AUDIT] Balance mismatch for account ${accountId}: current=${currentBalance.toNumber()}, calculated=${calculatedBalance.toNumber()}, diff=${diff.toNumber()}`;
+      this.logger.error(errorMsg);
+      throw new InternalServerErrorException(
+        `Balance audit failed for account ${accountId}`,
       );
     }
 
+    this.logger.log(
+      `[AUDIT] Account ${accountId} balance is consistent: ${currentBalance.toNumber()}`,
+    );
+  }
+
+  /**
+   * Create and complete a CREDIT transaction (pополнение баланса)
+   * Service account -> User account
+   */
+  async credit(
+    userId: number,
+    amount: number | Decimal,
+    description?: string,
+  ): Promise<Transaction> {
     const amountDecimal = new Decimal(amount.toString());
 
     if (amountDecimal.lte(0)) {
       throw new BadRequestException('Amount must be positive');
     }
 
-    const transaction = await this.prisma.transaction.create({
-      data: {
-        type,
-        state: TransactionState.HOLD,
-        accountAId,
-        accountBId,
-        amountOut: amountDecimal,
-        amountIn: amountDecimal, // Same amount for MVP (no conversion/fees)
-        currency: 'USD',
-        meta: JSON.stringify(meta),
-      },
-    });
+    // Get service and user accounts
+    const serviceAccount = await this.accountsService.getByUserId(1);
+    const userAccount = await this.accountsService.getByUserId(userId);
 
-    const amountStr =
-      typeof amount === 'number' ? amount : amountDecimal.toNumber();
-    this.logger.log(
-      `[TRANSACTION] Initiated ${type} txn=${transaction.id} A(${accountAId}) -> B(${accountBId}) amount=${amountStr} USD`,
+    // Audit balance before transaction
+    await this.auditBalance(userAccount.id);
+
+    const completedTransaction = await this.prisma.retryableTransaction(
+      async (tx) => {
+        // Create and complete transaction
+        const transaction = await tx.transaction.create({
+          data: {
+            type: TransactionType.CREDIT,
+            state: TransactionState.HOLD,
+            accountAId: serviceAccount.id,
+            accountBId: userAccount.id,
+            amountOut: amountDecimal,
+            amountIn: amountDecimal,
+            currency: 'USD',
+            meta: JSON.stringify({ description }),
+          },
+        });
+
+        // Update balances
+        await tx.account.update({
+          where: { id: serviceAccount.id },
+          data: {
+            balance: { decrement: amountDecimal },
+            outgoing: { increment: amountDecimal },
+          },
+        });
+
+        await tx.account.update({
+          where: { id: userAccount.id },
+          data: {
+            balance: { increment: amountDecimal },
+            incoming: { increment: amountDecimal },
+          },
+        });
+
+        // Mark as completed
+        const completed = await tx.transaction.update({
+          where: { id: transaction.id },
+          data: {
+            state: TransactionState.COMPLETED,
+            completedAt: new Date(),
+          },
+        });
+
+        this.logger.log(
+          `[TRANSACTION] CREDIT completed txn=${transaction.id} user=${userId} amount=${amountDecimal.toNumber()} USD`,
+        );
+
+        return completed;
+      },
     );
 
-    return transaction;
-  }
+    // Audit balance after transaction
+    await this.auditBalance(userAccount.id);
 
-  /**
-   * Complete transaction immediately without creating Order
-   * Used for direct balance purchases and partial payments
-   */
-  async completeImmediately(transactionId: string): Promise<Transaction> {
-    let completedTransaction: Transaction | null = null;
-
-    await this.prisma.$transaction(async (tx) => {
-      const transaction = await tx.transaction.findUnique({
-        where: { id: transactionId },
-      });
-
-      if (!transaction) {
-        throw new BadRequestException(`Transaction ${transactionId} not found`);
-      }
-
-      if (transaction.state === TransactionState.COMPLETED) {
-        this.logger.log(
-          `[TRANSACTION] Already completed txn=${transactionId} (idempotent)`,
-        );
-        completedTransaction = transaction;
-        return;
-      }
-
-      if (
-        transaction.state !== TransactionState.PENDING &&
-        transaction.state !== TransactionState.HOLD
-      ) {
-        throw new BadRequestException(
-          `Transaction ${transactionId} has invalid state: ${transaction.state}`,
-        );
-      }
-
-      // Apply balance changes
-      await this.accountsService.applyComplete(transaction, tx);
-
-      completedTransaction = await tx.transaction.update({
-        where: { id: transactionId },
-        data: {
-          state: TransactionState.COMPLETED,
-          completedAt: new Date(),
-        },
-      });
-
-      this.logger.log(
-        `[TRANSACTION] Completed immediately txn=${transactionId} type=${transaction.type}`,
-      );
-    });
-
-    if (!completedTransaction) {
-      throw new BadRequestException(
-        `Failed to complete transaction ${transactionId}`,
-      );
-    }
-
-    // Type assertion: completedTransaction is definitely not null after the check
-    const txn = completedTransaction as Transaction;
-
-    // Emit events after commit
+    // Emit events
     this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
-      accountId: txn.accountAId,
-      transactionId,
-    });
-
-    this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
-      accountId: txn.accountBId,
-      transactionId,
+      accountId: userAccount.id,
+      transactionId: completedTransaction.id,
     });
 
     this.eventEmitter.emit('TRANSACTION_CHANGED', {
-      transactionId,
+      transactionId: completedTransaction.id,
       state: TransactionState.COMPLETED,
     });
 
-    return txn;
+    return completedTransaction;
   }
 
   /**
-   * Complete payment transaction (ACCOUNT_REFILL)
-   * If purchase: also create Order and PRODUCT_PURCHASE transaction
-   * All operations are atomic within one DB transaction
+   * Create and complete a DEBIT transaction (списание баланса)
+   * User account -> Service account
+   * Optionally creates an Order if productId is provided
    */
-  async completePayTransaction(transactionId: string): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      // 1. Find and lock refill transaction
-      const refillTransaction = await tx.transaction.findUnique({
-        where: { id: transactionId },
+  async debit(
+    userId: number,
+    amount: number | Decimal,
+    productId?: number,
+    description?: string,
+  ): Promise<{ transaction: Transaction; orderId?: string }> {
+    const amountDecimal = new Decimal(amount.toString());
+
+    if (amountDecimal.lte(0)) {
+      throw new BadRequestException('Amount must be positive');
+    }
+
+    // Get service and user accounts
+    const serviceAccount = await this.accountsService.getByUserId(1);
+    const userAccount = await this.accountsService.getByUserId(userId);
+
+    // Check if user has sufficient balance
+    const currentBalance = await this.calculateBalanceFromHistory(
+      userAccount.id,
+    );
+    if (currentBalance.lessThan(amountDecimal)) {
+      throw new BadRequestException(
+        `Insufficient balance. Available: ${currentBalance.toNumber()}, Required: ${amountDecimal.toNumber()}`,
+      );
+    }
+
+    // Audit balance before transaction
+    await this.auditBalance(userAccount.id);
+
+    const result = await this.prisma.retryableTransaction(async (tx) => {
+      // Create and complete transaction
+      const transaction = await tx.transaction.create({
+        data: {
+          type: TransactionType.DEBIT,
+          state: TransactionState.HOLD,
+          accountAId: userAccount.id,
+          accountBId: serviceAccount.id,
+          amountOut: amountDecimal,
+          amountIn: amountDecimal,
+          currency: 'USD',
+          meta: JSON.stringify({ productId, description }),
+        },
       });
 
-      if (!refillTransaction) {
-        throw new BadRequestException(`Transaction ${transactionId} not found`);
-      }
+      // Update balances
+      await tx.account.update({
+        where: { id: userAccount.id },
+        data: {
+          balance: { decrement: amountDecimal },
+          outgoing: { increment: amountDecimal },
+        },
+      });
 
-      if (refillTransaction.state === TransactionState.COMPLETED) {
-        this.logger.log(
-          `[TRANSACTION] Already completed txn=${transactionId} (idempotent)`,
-        );
-        return; // Idempotent
-      }
+      await tx.account.update({
+        where: { id: serviceAccount.id },
+        data: {
+          balance: { increment: amountDecimal },
+          incoming: { increment: amountDecimal },
+        },
+      });
 
-      if (
-        refillTransaction.state !== TransactionState.PENDING &&
-        refillTransaction.state !== TransactionState.HOLD
-      ) {
-        throw new BadRequestException(
-          `Transaction ${transactionId} has invalid state: ${refillTransaction.state}`,
-        );
-      }
-
-      // 2. Complete refill: update balances
-      await this.accountsService.applyComplete(refillTransaction, tx);
-
-      await tx.transaction.update({
-        where: { id: transactionId },
+      // Mark as completed
+      const completed = await tx.transaction.update({
+        where: { id: transaction.id },
         data: {
           state: TransactionState.COMPLETED,
           completedAt: new Date(),
         },
       });
 
-      this.logger.log(`[TRANSACTION] Refill COMPLETED txn=${transactionId}`);
+      let orderId: string | undefined;
 
-      // 3. Check if this is a purchase (has productId in meta)
-      const meta = JSON.parse(refillTransaction.meta) as Record<string, any>;
-      const productId = meta?.productId as number;
-      const isPartialPayment = meta?.partial === true;
-      const linkedTransactionId = meta?.linkedTransactionId as
-        | string
-        | undefined;
-
+      // Create Order if productId provided
       if (productId) {
-        // Get product and user info
         const product = await tx.product.findUnique({
           where: { id: productId },
         });
+
         if (!product) {
           throw new BadRequestException(`Product ${productId} not found`);
         }
 
-        const buyerAccountId = refillTransaction.accountBId; // User account
-        const buyerAccount = await tx.account.findUnique({
-          where: { id: buyerAccountId },
-        });
-        const buyerUserId = buyerAccount!.userId;
-
-        const sellerUserId = 1; // Service user (id=1)
-        const sellerAccount = await tx.account.findUnique({
-          where: { userId: sellerUserId },
-        });
-
-        let cardPurchaseTransaction;
-        const purchaseTransactionIds: string[] = [];
-
-        if (isPartialPayment && linkedTransactionId) {
-          // PARTIAL PAYMENT: create second PRODUCT_PURCHASE for card part
-          // First part (balance) was already completed before refill
-
-          const balanceTransaction = await tx.transaction.findUnique({
-            where: { id: linkedTransactionId },
-          });
-
-          if (!balanceTransaction) {
-            throw new BadRequestException(
-              `Linked transaction ${linkedTransactionId} not found`,
-            );
-          }
-
-          purchaseTransactionIds.push(balanceTransaction.id);
-
-          // Create second PRODUCT_PURCHASE for card part (after refill)
-          cardPurchaseTransaction = await tx.transaction.create({
-            data: {
-              type: TransactionType.PRODUCT_PURCHASE,
-              state: TransactionState.HOLD,
-              accountAId: buyerAccountId,
-              accountBId: sellerAccount!.id,
-              amountOut: refillTransaction.amountIn, // Card part amount
-              amountIn: refillTransaction.amountIn,
-              currency: 'USD',
-              meta: JSON.stringify({
-                productId,
-                partial: true,
-                partialType: 'card_refill',
-                linkedTransactionId: balanceTransaction.id,
-              }),
-            },
-          });
-
-          // Apply card purchase balance changes
-          await this.accountsService.applyComplete(cardPurchaseTransaction, tx);
-
-          await tx.transaction.update({
-            where: { id: cardPurchaseTransaction.id },
-            data: {
-              state: TransactionState.COMPLETED,
-              completedAt: new Date(),
-            },
-          });
-
-          purchaseTransactionIds.push(cardPurchaseTransaction.id);
-
-          this.logger.log(
-            `[TRANSACTION] Partial payment completed: balance txn=${balanceTransaction.id} ($${balanceTransaction.amountOut.toNumber()}) + card txn=${cardPurchaseTransaction.id} ($${cardPurchaseTransaction.amountOut.toNumber()}) = total $${product.price.toNumber()}`,
-          );
-        } else {
-          // FULL CARD PAYMENT: create single PRODUCT_PURCHASE transaction
-          cardPurchaseTransaction = await tx.transaction.create({
-            data: {
-              type: TransactionType.PRODUCT_PURCHASE,
-              state: TransactionState.HOLD,
-              accountAId: buyerAccountId,
-              accountBId: sellerAccount!.id,
-              amountOut: product.price,
-              amountIn: product.price,
-              currency: 'USD',
-              meta: JSON.stringify({ productId }),
-            },
-          });
-
-          // Apply purchase balance changes
-          await this.accountsService.applyComplete(cardPurchaseTransaction, tx);
-
-          await tx.transaction.update({
-            where: { id: cardPurchaseTransaction.id },
-            data: {
-              state: TransactionState.COMPLETED,
-              completedAt: new Date(),
-            },
-          });
-
-          purchaseTransactionIds.push(cardPurchaseTransaction.id);
-
-          this.logger.log(
-            `[TRANSACTION] Full card payment completed: txn=${cardPurchaseTransaction.id} amount=$${product.price.toNumber()} USD`,
-          );
-        }
-
-        // Create Order (always with full product price)
         const order = await tx.order.create({
           data: {
             productId,
-            buyerUserId,
-            sellerUserId,
-            totalPrice: product.price,
+            buyerUserId: userId,
+            sellerUserId: 1, // Service user
+            totalPrice: amountDecimal,
             currency: 'USD',
             status: 'PAID',
           },
         });
 
-        this.logger.log(
-          `[ORDER] Created orderId=${order.id} productId=${productId} buyer=${buyerUserId} seller=${sellerUserId} total=$${product.price.toNumber()} USD`,
-        );
+        orderId = order.id;
 
-        // Store purchase transaction(s) and order for events
-        meta.purchaseTransactionIds = purchaseTransactionIds;
-        meta.orderId = order.id;
+        this.logger.log(
+          `[ORDER] Created orderId=${order.id} productId=${productId} buyer=${userId} amount=${amountDecimal.toNumber()} USD`,
+        );
       }
 
-      // Store updated meta
-      await tx.transaction.update({
-        where: { id: transactionId },
-        data: { meta: JSON.stringify(meta) },
-      });
+      this.logger.log(
+        `[TRANSACTION] DEBIT completed txn=${transaction.id} user=${userId} amount=${amountDecimal.toNumber()} USD`,
+      );
+
+      return { transaction: completed, orderId };
     });
 
-    // 4. After commit: emit events
-    const completedTransaction = await this.findById(transactionId);
-    const meta = JSON.parse(completedTransaction.meta) as Record<string, any>;
+    // Audit balance after transaction
+    await this.auditBalance(userAccount.id);
 
-    // Account balance changed events
+    // Emit events
     this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
-      accountId: completedTransaction.accountBId,
-      transactionId,
+      accountId: userAccount.id,
+      transactionId: result.transaction.id,
     });
 
-    // Transaction changed event
     this.eventEmitter.emit('TRANSACTION_CHANGED', {
-      transactionId,
+      transactionId: result.transaction.id,
       state: TransactionState.COMPLETED,
     });
 
-    // If purchase: emit additional events
-    if (meta.orderId) {
-      this.eventEmitter.emit('ORDER_CREATED', { orderId: meta.orderId });
-
-      // Emit events for all purchase transactions (one or two for partial payment)
-      const purchaseTransactionIds = (meta.purchaseTransactionIds ||
-        []) as string[];
-      for (const purchaseTxnId of purchaseTransactionIds) {
-        this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
-          accountId: completedTransaction.accountAId,
-          transactionId: purchaseTxnId,
-        });
-
-        this.eventEmitter.emit('TRANSACTION_CHANGED', {
-          transactionId: purchaseTxnId,
-          state: TransactionState.COMPLETED,
-        });
-      }
+    if (result.orderId) {
+      this.eventEmitter.emit('ORDER_CREATED', { orderId: result.orderId });
     }
 
-    this.logger.log(`[EVENT] Published events for txn=${transactionId}`);
-  }
-
-  /**
-   * Fail a transaction and reverse any partial changes
-   */
-  async failTransaction(transactionId: string): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const transaction = await tx.transaction.findUnique({
-        where: { id: transactionId },
-      });
-
-      if (!transaction) {
-        throw new BadRequestException(`Transaction ${transactionId} not found`);
-      }
-
-      if (transaction.state === TransactionState.FAILED) {
-        this.logger.log(
-          `[TRANSACTION] Already failed txn=${transactionId} (idempotent)`,
-        );
-        return; // Idempotent
-      }
-
-      if (transaction.state === TransactionState.COMPLETED) {
-        throw new BadRequestException(
-          `Cannot fail completed transaction ${transactionId}`,
-        );
-      }
-
-      // If HOLD state and balances were partially changed, reverse them
-      // For MVP, we assume HOLD doesn't touch balances yet, so just mark as FAILED
-      await tx.transaction.update({
-        where: { id: transactionId },
-        data: { state: TransactionState.FAILED },
-      });
-
-      this.logger.log(`[TRANSACTION] Failed txn=${transactionId}`);
-    });
-
-    // Emit event
-    this.eventEmitter.emit('TRANSACTION_CHANGED', {
-      transactionId,
-      state: TransactionState.FAILED,
-    });
+    return result;
   }
 
   async findById(id: string): Promise<Transaction> {
@@ -419,17 +314,12 @@ export class TransactionsService {
     return transaction;
   }
 
-  async findByProviderSessionId(
-    sessionId: string,
-  ): Promise<Transaction | null> {
-    return this.prisma.transaction.findUnique({
-      where: { providerSessionId: sessionId },
-    });
-  }
-
-  async findByPaymentIntentId(intentId: string): Promise<Transaction | null> {
-    return this.prisma.transaction.findUnique({
-      where: { paymentIntentId: intentId },
+  async findByAccountId(accountId: number): Promise<Transaction[]> {
+    return this.prisma.transaction.findMany({
+      where: {
+        OR: [{ accountAId: accountId }, { accountBId: accountId }],
+      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 }
