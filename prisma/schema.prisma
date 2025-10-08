@@ -14,26 +14,26 @@ enum UserRole {
 }
 
 model User {
-  id        Int       @id @default(autoincrement())
-  email     String?   @unique
-  role      UserRole  @default(USER)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  id        Int      @id @default(autoincrement())
+  email     String?  @unique
+  role      UserRole @default(USER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  account Account?
-  ordersAsBuyer  Order[] @relation("BuyerOrders")
-  ordersAsSeller Order[] @relation("SellerOrders")
+  account        Account?
+  ordersAsBuyer  Order[]  @relation("BuyerOrders")
+  ordersAsSeller Order[]  @relation("SellerOrders")
 }
 
 // Separate Account entity for financial operations
 // One account per user (1:1), but separated for future flexibility
 model Account {
-  id       Int     @id @default(autoincrement())
-  userId   Int     @unique
-  currency String  @default("USD") // Hardcoded to USD for MVP
-  balance  Decimal @default(0)
-  incoming Decimal @default(0) // For audit and recalculation
-  outgoing Decimal @default(0) // For audit and recalculation
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  currency  String   @default("USD") // Hardcoded to USD for MVP
+  balance   Decimal  @default(0)
+  incoming  Decimal  @default(0) // For audit and recalculation
+  outgoing  Decimal  @default(0) // For audit and recalculation
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -70,20 +70,20 @@ enum TransactionState {
 
 // Financial transaction: always bilateral (accountA -> accountB)
 model Transaction {
-  id        String           @id @default(uuid())
-  type      TransactionType
-  state     TransactionState @default(PENDING)
-  
+  id    String           @id @default(uuid())
+  type  TransactionType
+  state TransactionState @default(PENDING)
+
   accountAId Int
   accountBId Int
-  
+
   amountOut Decimal // Debit from accountA
   amountIn  Decimal // Credit to accountB
-  
+
   currency String @default("USD") // Hardcoded to USD for MVP
-  
-  meta     String  @default("{}") // JSON metadata: { productId, purpose, description, etc }
-  
+
+  meta String @default("{}") // JSON metadata: { productId, purpose, description, etc }
+
   createdAt   DateTime  @default(now())
   completedAt DateTime?
   updatedAt   DateTime  @updatedAt
