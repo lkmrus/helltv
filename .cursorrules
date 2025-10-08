@@ -1,0 +1,33 @@
+# Project-Specific Rules for helltv Payment Service
+
+## Memory Bank
+ALWAYS read Memory Bank files at the start of EVERY session:
+- memory-bank/projectbrief.md
+- memory-bank/productContext.md
+- memory-bank/systemPatterns.md
+- memory-bank/techContext.md
+- memory-bank/activeContext.md
+- memory-bank/progress.md
+- TODO.md (for detailed implementation plan)
+
+## Critical Implementation Paths
+1. All balance changes MUST happen within Prisma $transaction
+2. Events MUST be emitted ONLY after successful database commit
+3. Currency is ALWAYS 'USD' (hardcoded for MVP)
+4. providerSessionId and paymentIntentId are UNIQUE for idempotency
+
+## Project Patterns
+- Use Prisma for all database operations
+- Use EventEmitter2 for internal events
+- Stub provider for payment processing (no external API calls in MVP)
+- Two-step payment: ACCOUNT_REFILL (external) → PRODUCT_PURCHASE (internal)
+
+## Code Style
+- TypeScript with moderate strictness (allow 'any' in rare cases)
+- Minimal comments (only where necessary)
+- English for all comments and logs
+- Log prefixes: [PAYMENT], [WEBHOOK], [TRANSACTION], [ORDER], [EVENT]
+
+## Testing
+- Use .http files instead of automated tests for MVP
+- Manual testing through create-payment.http and payment-webhook.http

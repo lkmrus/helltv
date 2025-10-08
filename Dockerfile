@@ -41,4 +41,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD node -e "const req=require('http').request({method:'HEAD',host:'127.0.0.1',port:3000,path:'/'},res=>process.exit(res.statusCode<500?0:1));req.on('error',()=>process.exit(1));req.end()"
 
-CMD ["node", "dist/main.js"]
+# Initialize database and start application
+CMD sh -c "npx prisma migrate reset --force && node dist/main.js"

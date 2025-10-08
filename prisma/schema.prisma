@@ -6,3 +6,117 @@ datasource db {
   provider = "sqlite"
   url      = "file:./dev.db"
 }
+
+// User roles: SERVICE (id=1) for service account, USER for regular users
+enum UserRole {
+  SERVICE
+  USER
+}
+
+model User {
+  id        Int       @id @default(autoincrement())
+  email     String?   @unique
+  role      UserRole  @default(USER)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  account Account?
+  ordersAsBuyer  Order[] @relation("BuyerOrders")
+  ordersAsSeller Order[] @relation("SellerOrders")
+}
+
+// Separate Account entity for financial operations
+// One account per user (1:1), but separated for future flexibility
+model Account {
+  id       Int     @id @default(autoincrement())
+  userId   Int     @unique
+  currency String  @default("USD") // Hardcoded to USD for MVP
+  balance  Decimal @default(0)
+  incoming Decimal @default(0) // For audit and recalculation
+  outgoing Decimal @default(0) // For audit and recalculation
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  transactionsAsA Transaction[] @relation("AccountA")
+  transactionsAsB Transaction[] @relation("AccountB")
+}
+
+model Product {
+  id        Int      @id @default(autoincrement())
+  title     String
+  price     Decimal // Always in USD
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+}
+
+// Transaction types: ACCOUNT_REFILL (external payment), PRODUCT_PURCHASE (internal)
+enum TransactionType {
+  ACCOUNT_REFILL
+  PRODUCT_PURCHASE
+}
+
+// Transaction states: PENDING, HOLD, COMPLETED, FAILED
+enum TransactionState {
+  PENDING
+  HOLD
+  COMPLETED
+  FAILED
+}
+
+// Financial transaction: always bilateral (accountA -> accountB)
+model Transaction {
+  id        String           @id @default(uuid())
+  type      TransactionType
+  state     TransactionState @default(PENDING)
+  
+  accountAId Int
+  accountBId Int
+  
+  amountOut Decimal // Debit from accountA
+  amountIn  Decimal // Credit to accountB
+  
+  currency String @default("USD") // Hardcoded to USD for MVP
+  
+  meta     String  @default("{}") // JSON metadata: { provider, productId, purpose, etc }
+  
+  // Provider identifiers for idempotency
+  providerSessionId String? @unique
+  paymentIntentId   String? @unique
+  
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  accountA Account @relation("AccountA", fields: [accountAId], references: [id])
+  accountB Account @relation("AccountB", fields: [accountBId], references: [id])
+}
+
+// Order status: NEW, PAID, DELIVERED, CANCELLED
+// For MVP: orders are created as PAID after successful payment
+enum OrderStatus {
+  NEW
+  PAID
+  DELIVERED
+  CANCELLED
+}
+
+model Order {
+  id           String      @id @default(uuid())
+  productId    Int
+  buyerUserId  Int
+  sellerUserId Int
+  totalPrice   Decimal // Always in USD
+  currency     String      @default("USD") // Hardcoded to USD for MVP
+  status       OrderStatus @default(NEW)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+  buyer   User    @relation("BuyerOrders", fields: [buyerUserId], references: [id])
+  seller  User    @relation("SellerOrders", fields: [sellerUserId], references: [id])
+}

@@ -1,0 +1,4 @@
+export enum TransactionType {
+  ACCOUNT_REFILL = 'ACCOUNT_REFILL',
+  PRODUCT_PURCHASE = 'PRODUCT_PURCHASE',
+}

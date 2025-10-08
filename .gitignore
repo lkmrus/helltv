@@ -9,3 +9,6 @@ coverage
 TODO.md
 prisma/dev.db
 prisma/dev.db-journal
+# exclude md files except README.md
+*.md
+!README.md

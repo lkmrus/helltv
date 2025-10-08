@@ -1,0 +1,79 @@
+### === PRODUCTS ===
+
+### Get all products
+GET http://localhost:3050/products
+
+### === ACCOUNTS ===
+
+### Get user account (user id=2)
+GET http://localhost:3050/accounts/user/2
+
+### Get service account (user id=1)
+GET http://localhost:3050/accounts/user/1
+
+### === PAYMENTS ===
+
+### Create payment link for product purchase
+POST http://localhost:3050/payments/url
+Content-Type: application/json
+
+{
+  "userId": 2,
+  "productId": 1
+}
+
+### Response example:
+# {
+#   "url": "http://stub.local/pay/stub_session_xxx",
+#   "transactionId": "uuid-here",
+#   "paymentIntentId": "stub_pi_xxx"
+# }
+
+### Create payment link for simple refill (no product)
+POST http://localhost:3050/payments/url
+Content-Type: application/json
+
+{
+  "userId": 2
+}
+
+### === WEBHOOKS ===
+
+### Simulate successful payment webhook
+# Replace transactionId and paymentIntentId with values from create-payment response
+POST http://localhost:3050/payments/provider/webhook
+Content-Type: application/json
+
+{
+  "type": "payment.success",
+  "transactionId": "PUT_TRANSACTION_ID_HERE",
+  "paymentIntentId": "PUT_PAYMENT_INTENT_ID_HERE",
+  "amount": 100,
+  "metadata": {
+    "provider": "stub"
+  }
+}
+
+### Simulate failed payment webhook
+POST http://localhost:3050/payments/provider/webhook
+Content-Type: application/json
+
+{
+  "type": "payment.failed",
+  "transactionId": "PUT_TRANSACTION_ID_HERE",
+  "paymentIntentId": "PUT_PAYMENT_INTENT_ID_HERE",
+  "metadata": {
+    "provider": "stub",
+    "error": "Payment declined"
+  }
+}
+
+### === TRANSACTIONS ===
+
+### Get transaction by id
+GET http://localhost:3050/transactions/PUT_TRANSACTION_ID_HERE
+
+### === ORDERS ===
+
+### Get order by id
+GET http://localhost:3050/orders/PUT_ORDER_ID_HERE
