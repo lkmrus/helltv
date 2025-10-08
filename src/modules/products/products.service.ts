@@ -1,20 +1,21 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { PrismaService } from '../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
 import { Product } from '@prisma/client';
 
-const PRODUCT_CACHE_TTL = 900; // 15 minutes
+const PRODUCT_CACHE_TTL = 900 * 1000; // 15 minutes in milliseconds
 
 @Injectable()
 export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
   async findById(id: number): Promise<Product> {
     const cacheKey = `product:id:${id}`;
-    const cached = await this.redis.get<Product>(cacheKey);
+    const cached = await this.cacheManager.get<Product>(cacheKey);
 
     if (cached) {
       return cached;
@@ -32,13 +33,13 @@ export class ProductsService {
       throw new NotFoundException(`Product with id ${id} is not active`);
     }
 
-    await this.redis.set(cacheKey, product, PRODUCT_CACHE_TTL);
+    await this.cacheManager.set(cacheKey, product, PRODUCT_CACHE_TTL);
     return product;
   }
 
   async findAll(): Promise<Product[]> {
     const cacheKey = 'products:all';
-    const cached = await this.redis.get<Product[]>(cacheKey);
+    const cached = await this.cacheManager.get<Product[]>(cacheKey);
 
     if (cached) {
       return cached;
@@ -48,14 +49,14 @@ export class ProductsService {
       where: { active: true },
     });
 
-    await this.redis.set(cacheKey, products, PRODUCT_CACHE_TTL);
+    await this.cacheManager.set(cacheKey, products, PRODUCT_CACHE_TTL);
     return products;
   }
 
   async invalidateCache(productId?: number): Promise<void> {
     if (productId) {
-      await this.redis.del(`product:id:${productId}`);
+      await this.cacheManager.del(`product:id:${productId}`);
     }
-    await this.redis.del('products:all');
+    await this.cacheManager.del('products:all');
   }
 }

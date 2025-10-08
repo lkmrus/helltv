@@ -1,20 +1,21 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 import { PrismaService } from '../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
 import { User } from '@prisma/client';
 
-const USER_CACHE_TTL = 300; // 5 minutes
+const USER_CACHE_TTL = 300 * 1000; // 5 minutes in milliseconds
 
 @Injectable()
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
   async findById(id: number): Promise<User> {
     const cacheKey = `user:id:${id}`;
-    const cached = await this.redis.get<User>(cacheKey);
+    const cached = await this.cacheManager.get<User>(cacheKey);
 
     if (cached) {
       return cached;
@@ -28,13 +29,13 @@ export class UsersService {
       throw new NotFoundException(`User with id ${id} not found`);
     }
 
-    await this.redis.set(cacheKey, user, USER_CACHE_TTL);
+    await this.cacheManager.set(cacheKey, user, USER_CACHE_TTL);
     return user;
   }
 
   async findByEmail(email: string): Promise<User | null> {
     const cacheKey = `user:email:${email}`;
-    const cached = await this.redis.get<User>(cacheKey);
+    const cached = await this.cacheManager.get<User>(cacheKey);
 
     if (cached) {
       return cached;
@@ -45,7 +46,7 @@ export class UsersService {
     });
 
     if (user) {
-      await this.redis.set(cacheKey, user, USER_CACHE_TTL);
+      await this.cacheManager.set(cacheKey, user, USER_CACHE_TTL);
     }
 
     return user;
@@ -56,6 +57,8 @@ export class UsersService {
   }
 
   async invalidateCache(userId: number): Promise<void> {
-    await this.redis.delPattern(`user:*:${userId}`);
+    // Invalidate by deleting specific keys
+    await this.cacheManager.del(`user:id:${userId}`);
+    // Note: email-based cache will expire naturally or can be invalidated separately
   }
 }

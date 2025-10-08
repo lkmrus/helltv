@@ -10,6 +10,16 @@ import { Transaction, TransactionType, TransactionState } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Decimal } from '@prisma/client/runtime/library';
 
+interface ExecuteTransactionParams {
+  type: TransactionType;
+  fromAccountId: number;
+  toAccountId: number;
+  amount: Decimal;
+  meta: any;
+  userId: number;
+  productId?: number;
+}
+
 @Injectable()
 export class TransactionsService {
   private readonly logger = new Logger(TransactionsService.name);
@@ -81,7 +91,105 @@ export class TransactionsService {
   }
 
   /**
-   * Create and complete a CREDIT transaction (pополнение баланса)
+   * Private method to execute balance transaction atomically
+   * Reduces code duplication between credit() and debit()
+   */
+  private async executeBalanceTransaction(
+    params: ExecuteTransactionParams,
+  ): Promise<{ transaction: Transaction; orderId?: string }> {
+    const {
+      type,
+      fromAccountId,
+      toAccountId,
+      amount,
+      meta,
+      userId,
+      productId,
+    } = params;
+
+    const result = await this.prisma.retryableTransaction(async (tx) => {
+      // Create and complete transaction
+      const transaction = await tx.transaction.create({
+        data: {
+          type,
+          state: TransactionState.HOLD,
+          accountAId: fromAccountId,
+          accountBId: toAccountId,
+          amountOut: amount,
+          amountIn: amount,
+          currency: 'USD',
+          meta: JSON.stringify(meta),
+        },
+      });
+
+      // Update balances atomically
+      await tx.account.update({
+        where: { id: fromAccountId },
+        data: {
+          balance: { decrement: amount },
+          outgoing: { increment: amount },
+        },
+      });
+
+      await tx.account.update({
+        where: { id: toAccountId },
+        data: {
+          balance: { increment: amount },
+          incoming: { increment: amount },
+        },
+      });
+
+      // Mark as completed
+      const completed = await tx.transaction.update({
+        where: { id: transaction.id },
+        data: {
+          state: TransactionState.COMPLETED,
+          completedAt: new Date(),
+        },
+      });
+
+      let orderId: string | undefined;
+
+      // Create Order if productId provided (for DEBIT only)
+      if (productId && type === TransactionType.DEBIT) {
+        const product = await tx.product.findUnique({
+          where: { id: productId },
+        });
+
+        if (!product) {
+          throw new BadRequestException(`Product ${productId} not found`);
+        }
+
+        const order = await tx.order.create({
+          data: {
+            productId,
+            buyerUserId: userId,
+            sellerUserId: 1, // Service user
+            totalPrice: amount,
+            currency: 'USD',
+            status: 'PAID',
+          },
+        });
+
+        orderId = order.id;
+
+        this.logger.log(
+          `[ORDER] Created orderId=${order.id} productId=${productId} buyer=${userId} amount=${amount.toNumber()} USD`,
+        );
+      }
+
+      this.logger.log(
+        `[TRANSACTION] ${type} completed txn=${transaction.id} user=${userId} amount=${amount.toNumber()} USD`,
+      );
+
+      return { transaction: completed, orderId };
+    });
+
+    return result;
+  }
+
+  /**
+   * Create and complete a CREDIT transaction (пополнение баланса)
    * Service account -> User account
    */
   async credit(
@@ -102,55 +210,15 @@ export class TransactionsService {
     // Audit balance before transaction
     await this.auditBalance(userAccount.id);
 
-    const completedTransaction = await this.prisma.retryableTransaction(
-      async (tx) => {
-        // Create and complete transaction
-        const transaction = await tx.transaction.create({
-          data: {
-            type: TransactionType.CREDIT,
-            state: TransactionState.HOLD,
-            accountAId: serviceAccount.id,
-            accountBId: userAccount.id,
-            amountOut: amountDecimal,
-            amountIn: amountDecimal,
-            currency: 'USD',
-            meta: JSON.stringify({ description }),
-          },
-        });
-
-        // Update balances
-        await tx.account.update({
-          where: { id: serviceAccount.id },
-          data: {
-            balance: { decrement: amountDecimal },
-            outgoing: { increment: amountDecimal },
-          },
-        });
-
-        await tx.account.update({
-          where: { id: userAccount.id },
-          data: {
-            balance: { increment: amountDecimal },
-            incoming: { increment: amountDecimal },
-          },
-        });
-
-        // Mark as completed
-        const completed = await tx.transaction.update({
-          where: { id: transaction.id },
-          data: {
-            state: TransactionState.COMPLETED,
-            completedAt: new Date(),
-          },
-        });
-
-        this.logger.log(
-          `[TRANSACTION] CREDIT completed txn=${transaction.id} user=${userId} amount=${amountDecimal.toNumber()} USD`,
-        );
-
-        return completed;
-      },
-    );
+    // Execute transaction
+    const { transaction } = await this.executeBalanceTransaction({
+      type: TransactionType.CREDIT,
+      fromAccountId: serviceAccount.id,
+      toAccountId: userAccount.id,
+      amount: amountDecimal,
+      meta: { description },
+      userId,
+    });
 
     // Audit balance after transaction
     await this.auditBalance(userAccount.id);
@@ -158,15 +226,15 @@ export class TransactionsService {
     // Emit events
     this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
       accountId: userAccount.id,
-      transactionId: completedTransaction.id,
+      transactionId: transaction.id,
     });
 
     this.eventEmitter.emit('TRANSACTION_CHANGED', {
-      transactionId: completedTransaction.id,
+      transactionId: transaction.id,
       state: TransactionState.COMPLETED,
     });
 
-    return completedTransaction;
+    return transaction;
   }
 
   /**
@@ -203,82 +271,15 @@ export class TransactionsService {
     // Audit balance before transaction
     await this.auditBalance(userAccount.id);
 
-    const result = await this.prisma.retryableTransaction(async (tx) => {
-      // Create and complete transaction
-      const transaction = await tx.transaction.create({
-        data: {
-          type: TransactionType.DEBIT,
-          state: TransactionState.HOLD,
-          accountAId: userAccount.id,
-          accountBId: serviceAccount.id,
-          amountOut: amountDecimal,
-          amountIn: amountDecimal,
-          currency: 'USD',
-          meta: JSON.stringify({ productId, description }),
-        },
-      });
-
-      // Update balances
-      await tx.account.update({
-        where: { id: userAccount.id },
-        data: {
-          balance: { decrement: amountDecimal },
-          outgoing: { increment: amountDecimal },
-        },
-      });
-
-      await tx.account.update({
-        where: { id: serviceAccount.id },
-        data: {
-          balance: { increment: amountDecimal },
-          incoming: { increment: amountDecimal },
-        },
-      });
-
-      // Mark as completed
-      const completed = await tx.transaction.update({
-        where: { id: transaction.id },
-        data: {
-          state: TransactionState.COMPLETED,
-          completedAt: new Date(),
-        },
-      });
-
-      let orderId: string | undefined;
-
-      // Create Order if productId provided
-      if (productId) {
-        const product = await tx.product.findUnique({
-          where: { id: productId },
-        });
-
-        if (!product) {
-          throw new BadRequestException(`Product ${productId} not found`);
-        }
-
-        const order = await tx.order.create({
-          data: {
-            productId,
-            buyerUserId: userId,
-            sellerUserId: 1, // Service user
-            totalPrice: amountDecimal,
-            currency: 'USD',
-            status: 'PAID',
-          },
-        });
-
-        orderId = order.id;
-
-        this.logger.log(
-          `[ORDER] Created orderId=${order.id} productId=${productId} buyer=${userId} amount=${amountDecimal.toNumber()} USD`,
-        );
-      }
-
-      this.logger.log(
-        `[TRANSACTION] DEBIT completed txn=${transaction.id} user=${userId} amount=${amountDecimal.toNumber()} USD`,
-      );
-
-      return { transaction: completed, orderId };
+    // Execute transaction
+    const result = await this.executeBalanceTransaction({
+      type: TransactionType.DEBIT,
+      fromAccountId: userAccount.id,
+      toAccountId: serviceAccount.id,
+      amount: amountDecimal,
+      meta: { productId, description },
+      userId,
+      productId,
     });
 
     // Audit balance after transaction
