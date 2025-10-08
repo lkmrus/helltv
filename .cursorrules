@@ -8,7 +8,6 @@ ALWAYS read Memory Bank files at the start of EVERY session:
 - memory-bank/techContext.md
 - memory-bank/activeContext.md
 - memory-bank/progress.md
-- TODO.md (for detailed implementation plan)
 
 ## Critical Implementation Paths
 1. All balance changes MUST happen within Prisma $transaction
@@ -30,4 +29,4 @@ ALWAYS read Memory Bank files at the start of EVERY session:
 
 ## Testing
 - Use .http files instead of automated tests for MVP
-- Manual testing through create-payment.http and payment-webhook.http
+- Manual testing through api-test.http (unified file with all endpoints)

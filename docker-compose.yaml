@@ -2,8 +2,7 @@ services:
   app:
     build:
       context: .
-      target: production
-    image: billing-app:latest
+    image: helltv-payment:latest
     restart: unless-stopped
     ports:
       - '3050:3050'
@@ -12,4 +11,5 @@ services:
       PORT: 3050
       DATABASE_URL: file:./prisma/dev.db
     volumes:
+      # Database and initialization marker are persisted here
       - ./prisma:/app/prisma

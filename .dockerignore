@@ -1,13 +1,15 @@
-.idea
 node_modules
-.env
 dist
-.DS_Store
-.vscode
-coverage
-*.log
-TODO.md
-prisma/dev.db
-prisma/dev.db-journal
-# exlude md files
+npm-debug.log
+.env
+.git
+.gitignore
+README.md
 *.md
+.vscode
+.idea
+coverage
+.DS_Store
+*.http
+prisma/dev.db
+prisma/.initialized

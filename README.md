@@ -18,7 +18,69 @@ npm run start:dev
 
 Приложение запустится на `http://localhost:3050`
 
-### Тестирование
+## Docker
+
+### Сборка и запуск
+
+```bash
+# Собрать и запустить контейнер
+docker-compose up --build
+
+# Запустить в фоновом режиме
+docker-compose up -d
+
+# Просмотр логов
+docker-compose logs -f app
+
+# Остановить контейнер
+docker-compose down
+```
+
+### Сохранение данных
+
+Docker использует умный скрипт инициализации:
+- ✅ **Первый запуск**: Создает БД, применяет миграции, загружает seed данные
+- ✅ **Последующие запуски**: Только применяет новые миграции, сохраняет существующие данные
+- ✅ **Seed данные выполняются только один раз** (отслеживается через файл-маркер `.initialized`)
+
+### Полный сброс базы данных
+
+Для полного сброса БД и повторного выполнения seed:
+
+```bash
+# Остановить и удалить контейнеры
+docker-compose down
+
+# Удалить БД и маркер инициализации
+rm -f prisma/dev.db prisma/.initialized
+
+# Перезапустить (инициализация с нуля)
+docker-compose up --build
+```
+
+Или одной командой:
+```bash
+# Очистить всё и пересобрать
+docker-compose down && rm -f prisma/dev.db prisma/.initialized && docker-compose up --build
+```
+
+### Тестирование в Docker
+
+```bash
+# Запустить сервис
+docker-compose up -d
+
+# Подождать запуска
+sleep 3
+
+# Протестировать API
+curl http://localhost:3050/products
+
+# Просмотр логов для отладки
+docker-compose logs -f app
+```
+
+### Tестирование
 
 1. Откройте `api-test.http` в VS Code (с REST Client extension)
 2. Выполните POST запрос для создания платежной ссылки (секция PAYMENTS)
