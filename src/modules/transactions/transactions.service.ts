@@ -38,7 +38,6 @@ export class TransactionsService {
   async calculateBalanceFromHistory(accountId: number): Promise<Decimal> {
     const account = await this.accountsService.getById(accountId);
 
-    // Get all completed transactions for this account
     const transactions = await this.prisma.transaction.findMany({
       where: {
         state: TransactionState.COMPLETED,
@@ -46,16 +45,13 @@ export class TransactionsService {
       },
     });
 
-    // Calculate: initial balance + incoming - outgoing
     let calculatedBalance = new Decimal(0);
 
     for (const tx of transactions) {
       if (tx.accountBId === accountId) {
-        // Incoming transaction
         calculatedBalance = calculatedBalance.plus(tx.amountIn);
       }
       if (tx.accountAId === accountId) {
-        // Outgoing transaction
         calculatedBalance = calculatedBalance.minus(tx.amountOut);
       }
     }
@@ -109,7 +105,6 @@ export class TransactionsService {
     } = params;
 
     const result = await this.prisma.retryableTransaction(async (tx) => {
-      // Create and complete transaction
       const transaction = await tx.transaction.create({
         data: {
           type,
@@ -123,7 +118,6 @@ export class TransactionsService {
         },
       });
 
-      // Update balances atomically
       await tx.account.update({
         where: { id: fromAccountId },
         data: {
@@ -140,7 +134,6 @@ export class TransactionsService {
         },
       });
 
-      // Mark as completed
       const completed = await tx.transaction.update({
         where: { id: transaction.id },
         data: {
@@ -151,7 +144,6 @@ export class TransactionsService {
 
       let orderId: string | undefined;
 
-      // Create Order if productId provided (for DEBIT only)
       if (productId && type === TransactionType.DEBIT) {
         const product = await tx.product.findUnique({
           where: { id: productId },
@@ -165,7 +157,7 @@ export class TransactionsService {
           data: {
             productId,
             buyerUserId: userId,
-            sellerUserId: 1, // Service user
+            sellerUserId: 1,
             totalPrice: amount,
             currency: 'USD',
             status: 'PAID',
@@ -200,11 +192,9 @@ export class TransactionsService {
       throw new BadRequestException('Amount must be positive');
     }
 
-    // Get service and user accounts
     const serviceAccount = await this.accountsService.getByUserId(1);
     const userAccount = await this.accountsService.getByUserId(userId);
 
-    // Execute transaction
     const { transaction } = await this.executeBalanceTransaction({
       type: TransactionType.CREDIT,
       fromAccountId: serviceAccount.id,
@@ -214,7 +204,6 @@ export class TransactionsService {
       userId,
     });
 
-    // Emit events
     this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
       accountId: userAccount.id,
       transactionId: transaction.id,
@@ -225,7 +214,6 @@ export class TransactionsService {
       state: TransactionState.COMPLETED,
     });
 
-    // Trigger async audit
     this.eventEmitter.emit('TRANSACTION_COMPLETED', {
       accountId: userAccount.id,
       transactionId: transaction.id,
@@ -250,11 +238,9 @@ export class TransactionsService {
       throw new BadRequestException('Amount must be positive');
     }
 
-    // Get service and user accounts
     const serviceAccount = await this.accountsService.getByUserId(1);
     const userAccount = await this.accountsService.getByUserId(userId);
 
-    // Check if user has sufficient balance
     const currentBalance = await this.calculateBalanceFromHistory(
       userAccount.id,
     );
@@ -264,7 +250,6 @@ export class TransactionsService {
       );
     }
 
-    // Execute transaction
     const result = await this.executeBalanceTransaction({
       type: TransactionType.DEBIT,
       fromAccountId: userAccount.id,
@@ -275,7 +260,6 @@ export class TransactionsService {
       productId,
     });
 
-    // Emit events
     this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
       accountId: userAccount.id,
       transactionId: result.transaction.id,
@@ -290,7 +274,6 @@ export class TransactionsService {
       this.eventEmitter.emit('ORDER_CREATED', { orderId: result.orderId });
     }
 
-    // Trigger async audit
     this.eventEmitter.emit('TRANSACTION_COMPLETED', {
       accountId: userAccount.id,
       transactionId: result.transaction.id,

@@ -77,7 +77,6 @@ export class PrismaService
       maxWait?: number;
       timeout?: number;
       isolationLevel?: Prisma.TransactionIsolationLevel;
-      // transaction retry options
       retryCount?: number;
       retryWait?: number;
     },

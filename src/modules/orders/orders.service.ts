@@ -42,7 +42,6 @@ export class OrdersService {
    * Uses TransactionsService.debit() which creates transaction + order atomically
    */
   async purchaseWithBalance(userId: number, productId: number): Promise<Order> {
-    // 1. Get product and validate
     const product = await this.productsService.findById(productId);
     if (!product.active) {
       throw new BadRequestException(
@@ -54,7 +53,6 @@ export class OrdersService {
       `[ORDER] Begin purchase from balance: userId=${userId} productId=${productId} price=$${product.price.toNumber()}`,
     );
 
-    // 2. Create DEBIT transaction with order
     const result = await this.transactionsService.debit(
       userId,
       product.price,
@@ -65,7 +63,6 @@ export class OrdersService {
       throw new BadRequestException('Failed to create order');
     }
 
-    // 3. Get created order
     const order = await this.findById(result.orderId);
 
     this.logger.log(

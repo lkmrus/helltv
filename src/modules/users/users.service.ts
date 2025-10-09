@@ -57,8 +57,6 @@ export class UsersService {
   }
 
   async invalidateCache(userId: number): Promise<void> {
-    // Invalidate by deleting specific keys
     await this.cacheManager.del(`user:id:${userId}`);
-    // Note: email-based cache will expire naturally or can be invalidated separately
   }
 }
