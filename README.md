@@ -22,17 +22,17 @@ docker-compose up -d postgres redis
 ### 3. Настройка базы данных
 ```bash
 # Применить миграции
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/billing?schema=public&sslmode=disable" \
+DATABASE_URL="postgresql://user:password@localhost:5432/dbname?schema=public" \
   npx prisma migrate deploy
 
 # Заполнить тестовыми данными
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/billing?schema=public&sslmode=disable" \
+DATABASE_URL="postgresql://user:password@localhost:5432/dbname?schema=public" \
   npm run db:seed
 ```
 
 ### 4. Запуск приложения
 ```bash
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/billing?schema=public&sslmode=disable" \
+DATABASE_URL="postgresql://user:password@localhost:5432/dbname?schema=public" \
   npm run start:dev
 ```
 
@@ -49,8 +49,7 @@ POST /accounts/user/:userId/credit
 Content-Type: application/json
 
 {
-  "amount": 500.00,
-  "description": "Test credit"
+  "amount": 500.00
 }
 ```
 
@@ -60,8 +59,7 @@ POST /accounts/user/:userId/debit
 Content-Type: application/json
 
 {
-  "amount": 50.00,
-  "description": "Test debit"
+  "amount": 50.00
 }
 ```
 
@@ -72,8 +70,7 @@ Content-Type: application/json
 
 {
   "amount": 100.00,
-  "productId": 1,
-  "description": "Purchase product"
+  "productId": 1
 }
 ```
 
@@ -217,17 +214,17 @@ helltv/
 
 ### Создать миграцию
 ```bash
-DATABASE_URL="..." npx prisma migrate dev --name migration_name
+npx prisma migrate dev --name migration_name
 ```
 
 ### Prisma Studio (GUI для БД)
 ```bash
-DATABASE_URL="..." npx prisma studio
+npx prisma studio
 ```
 
 ### Пересоздать БД
 ```bash
-DATABASE_URL="..." npx prisma migrate reset
+npx prisma migrate reset
 ```
 
 ### Сборка
@@ -238,14 +235,9 @@ npm run build
 ## 📖 Документация
 
 Полная документация в папке `memory-bank/`:
-- `projectbrief.md` - описание проекта
-- `productContext.md` - бизнес-процессы
-- `systemPatterns.md` - архитектурные паттерны
-- `techContext.md` - технические детали
-- `activeContext.md` - текущее состояние
-- `progress.md` - прогресс разработки
-
-Также см. `IMPLEMENTATION_COMPLETE.md` для детального отчета о реализации.
+- Описание проекта и требования
+- Бизнес-процессы и архитектурные паттерны
+- Технические детали и текущее состояние
 
 ## 🎯 Примеры использования
 
@@ -315,7 +307,7 @@ docker-compose ps redis
 ### Ошибка миграций
 ```bash
 # Сбросить и применить заново
-DATABASE_URL="..." npx prisma migrate reset --force
+npx prisma migrate reset --force
 ```
 
 ## 📄 Лицензия
