@@ -8,6 +8,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { Order } from '@prisma/client';
 import { ProductsService } from '../products/products.service';
 import { TransactionsService } from '../transactions/transactions.service';
+import { OrderWithRelations } from './types';
 
 @Injectable()
 export class OrdersService {
@@ -19,7 +20,7 @@ export class OrdersService {
     private readonly transactionsService: TransactionsService,
   ) {}
 
-  async findById(id: string): Promise<Order> {
+  async findById(id: string): Promise<OrderWithRelations> {
     const order = await this.prisma.order.findUnique({
       where: { id },
       include: {

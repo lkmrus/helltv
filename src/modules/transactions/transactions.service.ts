@@ -9,6 +9,7 @@ import { AccountsService } from '../accounts/accounts.service';
 import { Transaction, TransactionType, TransactionState } from '@prisma/client';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Decimal } from '@prisma/client/runtime/library';
+import { DebitResult } from './types';
 
 interface ExecuteTransactionParams {
   type: TransactionType;
@@ -242,7 +243,7 @@ export class TransactionsService {
     userId: number,
     amount: number | Decimal,
     productId?: number,
-  ): Promise<{ transaction: Transaction; orderId?: string }> {
+  ): Promise<DebitResult> {
     const amountDecimal = new Decimal(amount.toString());
 
     if (amountDecimal.lte(0)) {

@@ -9,24 +9,9 @@ import {
 import { AccountsService } from './accounts.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { Account, Transaction } from '@prisma/client';
-import { IsNumber, IsPositive, IsOptional } from 'class-validator';
-
-class CreditDto {
-  @IsNumber()
-  @IsPositive()
-  amount: number;
-}
-
-class DebitDto {
-  @IsNumber()
-  @IsPositive()
-  amount: number;
-
-  @IsOptional()
-  @IsNumber()
-  @IsPositive()
-  productId?: number;
-}
+import { CreditDto } from './dto/credit.dto';
+import { DebitDto } from './dto/debit.dto';
+import { AccountAuditResponse, DebitResponse } from './types';
 
 @Controller('accounts')
 export class AccountsController {
@@ -51,13 +36,9 @@ export class AccountsController {
   }
 
   @Get('user/:userId/audit')
-  async audit(@Param('userId', ParseIntPipe) userId: number): Promise<{
-    accountId: number;
-    currentBalance: string;
-    calculatedBalance: string;
-    difference: string;
-    isValid: boolean;
-  }> {
+  async audit(
+    @Param('userId', ParseIntPipe) userId: number,
+  ): Promise<AccountAuditResponse> {
     const account = await this.accountsService.getByUserId(userId);
     const calculatedBalance =
       await this.transactionsService.calculateBalanceFromHistory(account.id);
@@ -87,7 +68,7 @@ export class AccountsController {
   async debit(
     @Param('userId', ParseIntPipe) userId: number,
     @Body() dto: DebitDto,
-  ): Promise<{ transaction: Transaction; orderId?: string }> {
+  ): Promise<DebitResponse> {
     return this.transactionsService.debit(userId, dto.amount, dto.productId);
   }
 }

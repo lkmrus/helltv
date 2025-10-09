@@ -2,6 +2,7 @@ import { Controller, Get, Param, Post, Body } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { Order } from '@prisma/client';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { OrderWithRelations } from './types';
 
 @Controller('orders')
 export class OrdersController {
@@ -13,7 +14,7 @@ export class OrdersController {
   }
 
   @Get(':id')
-  async findById(@Param('id') id: string): Promise<Order> {
+  async findById(@Param('id') id: string): Promise<OrderWithRelations> {
     return this.ordersService.findById(id);
   }
 }
