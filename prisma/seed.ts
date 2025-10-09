@@ -76,7 +76,7 @@ async function main() {
       amountOut: 10000.0,
       amountIn: 10000.0,
       currency: 'USD',
-      meta: JSON.stringify({ description: 'Initial platform funding' }),
+      meta: JSON.stringify({}),
       completedAt: new Date(),
     },
   });

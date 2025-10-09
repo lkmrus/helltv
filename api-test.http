@@ -41,8 +41,7 @@ POST {{baseUrl}}/accounts/user/{{userId}}/credit
 Content-Type: application/json
 
 {
-  "amount": 500.00,
-  "description": "Test credit - add $500"
+  "amount": 500.00
 }
 
 ### ============================================
@@ -53,8 +52,7 @@ POST {{baseUrl}}/accounts/user/{{userId}}/debit
 Content-Type: application/json
 
 {
-  "amount": 50.00,
-  "description": "Test debit - remove $50"
+  "amount": 50.00
 }
 
 ### ============================================
@@ -66,8 +64,7 @@ Content-Type: application/json
 
 {
   "amount": 100.00,
-  "productId": {{productId}},
-  "description": "Purchase product #1"
+  "productId": {{productId}}
 }
 
 ### ============================================
@@ -108,8 +105,7 @@ POST {{baseUrl}}/accounts/user/{{userId}}/credit
 Content-Type: application/json
 
 {
-  "amount": 500.00,
-  "description": "Initial credit"
+  "amount": 500.00
 }
 
 ### Step 3: Check balance after credit
@@ -147,8 +143,7 @@ Content-Type: application/json
 
 {
   "amount": 999999.00,
-  "productId": {{productId}},
-  "description": "Should fail - not enough balance"
+  "productId": {{productId}}
 }
 
 ### ============================================
@@ -160,8 +155,7 @@ POST {{baseUrl}}/accounts/user/{{userId}}/credit
 Content-Type: application/json
 
 {
-  "amount": 1000.00,
-  "description": "Large credit"
+  "amount": 1000.00
 }
 
 ### Debit $200
@@ -169,8 +163,7 @@ POST {{baseUrl}}/accounts/user/{{userId}}/debit
 Content-Type: application/json
 
 {
-  "amount": 200.00,
-  "description": "Debit $200"
+  "amount": 200.00
 }
 
 ### Debit $300
@@ -178,8 +171,7 @@ POST {{baseUrl}}/accounts/user/{{userId}}/debit
 Content-Type: application/json
 
 {
-  "amount": 300.00,
-  "description": "Debit $300"
+  "amount": 300.00
 }
 
 ### Credit $500
@@ -187,8 +179,7 @@ POST {{baseUrl}}/accounts/user/{{userId}}/credit
 Content-Type: application/json
 
 {
-  "amount": 500.00,
-  "description": "Another credit"
+  "amount": 500.00
 }
 
 ### Check balance

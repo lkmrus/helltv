@@ -9,16 +9,12 @@ import {
 import { AccountsService } from './accounts.service';
 import { TransactionsService } from '../transactions/transactions.service';
 import { Account, Transaction } from '@prisma/client';
-import { IsNumber, IsPositive, IsOptional, IsString } from 'class-validator';
+import { IsNumber, IsPositive, IsOptional } from 'class-validator';
 
 class CreditDto {
   @IsNumber()
   @IsPositive()
   amount: number;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
 }
 
 class DebitDto {
@@ -30,10 +26,6 @@ class DebitDto {
   @IsNumber()
   @IsPositive()
   productId?: number;
-
-  @IsOptional()
-  @IsString()
-  description?: string;
 }
 
 @Controller('accounts')
@@ -88,7 +80,7 @@ export class AccountsController {
     @Param('userId', ParseIntPipe) userId: number,
     @Body() dto: CreditDto,
   ): Promise<Transaction> {
-    return this.transactionsService.credit(userId, dto.amount, dto.description);
+    return this.transactionsService.credit(userId, dto.amount);
   }
 
   @Post('user/:userId/debit')
@@ -96,11 +88,6 @@ export class AccountsController {
     @Param('userId', ParseIntPipe) userId: number,
     @Body() dto: DebitDto,
   ): Promise<{ transaction: Transaction; orderId?: string }> {
-    return this.transactionsService.debit(
-      userId,
-      dto.amount,
-      dto.productId,
-      dto.description,
-    );
+    return this.transactionsService.debit(userId, dto.amount, dto.productId);
   }
 }

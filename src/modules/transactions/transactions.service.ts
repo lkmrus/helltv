@@ -192,11 +192,7 @@ export class TransactionsService {
    * Create and complete a CREDIT transaction (пополнение баланса)
    * Service account -> User account
    */
-  async credit(
-    userId: number,
-    amount: number | Decimal,
-    description?: string,
-  ): Promise<Transaction> {
+  async credit(userId: number, amount: number | Decimal): Promise<Transaction> {
     const amountDecimal = new Decimal(amount.toString());
 
     if (amountDecimal.lte(0)) {
@@ -213,7 +209,7 @@ export class TransactionsService {
       fromAccountId: serviceAccount.id,
       toAccountId: userAccount.id,
       amount: amountDecimal,
-      meta: { description },
+      meta: {},
       userId,
     });
 
@@ -246,7 +242,6 @@ export class TransactionsService {
     userId: number,
     amount: number | Decimal,
     productId?: number,
-    description?: string,
   ): Promise<{ transaction: Transaction; orderId?: string }> {
     const amountDecimal = new Decimal(amount.toString());
 
@@ -274,7 +269,7 @@ export class TransactionsService {
       fromAccountId: userAccount.id,
       toAccountId: serviceAccount.id,
       amount: amountDecimal,
-      meta: { productId, description },
+      meta: { productId },
       userId,
       productId,
     });

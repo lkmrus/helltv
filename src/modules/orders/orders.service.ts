@@ -58,7 +58,6 @@ export class OrdersService {
       userId,
       product.price,
       productId,
-      `Purchase product ${productId}`,
     );
 
     if (!result.orderId) {
