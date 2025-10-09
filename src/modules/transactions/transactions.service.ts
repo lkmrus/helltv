@@ -207,9 +207,6 @@ export class TransactionsService {
     const serviceAccount = await this.accountsService.getByUserId(1);
     const userAccount = await this.accountsService.getByUserId(userId);
 
-    // Audit balance before transaction
-    await this.auditBalance(userAccount.id);
-
     // Execute transaction
     const { transaction } = await this.executeBalanceTransaction({
       type: TransactionType.CREDIT,
@@ -220,9 +217,6 @@ export class TransactionsService {
       userId,
     });
 
-    // Audit balance after transaction
-    await this.auditBalance(userAccount.id);
-
     // Emit events
     this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
       accountId: userAccount.id,
@@ -232,6 +226,12 @@ export class TransactionsService {
     this.eventEmitter.emit('TRANSACTION_CHANGED', {
       transactionId: transaction.id,
       state: TransactionState.COMPLETED,
+    });
+
+    // Trigger async audit
+    this.eventEmitter.emit('TRANSACTION_COMPLETED', {
+      accountId: userAccount.id,
+      transactionId: transaction.id,
     });
 
     return transaction;
@@ -268,9 +268,6 @@ export class TransactionsService {
       );
     }
 
-    // Audit balance before transaction
-    await this.auditBalance(userAccount.id);
-
     // Execute transaction
     const result = await this.executeBalanceTransaction({
       type: TransactionType.DEBIT,
@@ -281,9 +278,6 @@ export class TransactionsService {
       userId,
       productId,
     });
-
-    // Audit balance after transaction
-    await this.auditBalance(userAccount.id);
 
     // Emit events
     this.eventEmitter.emit('ACCOUNT_BALANCE_CHANGED', {
@@ -299,6 +293,12 @@ export class TransactionsService {
     if (result.orderId) {
       this.eventEmitter.emit('ORDER_CREATED', { orderId: result.orderId });
     }
+
+    // Trigger async audit
+    this.eventEmitter.emit('TRANSACTION_COMPLETED', {
+      accountId: userAccount.id,
+      transactionId: result.transaction.id,
+    });
 
     return result;
   }

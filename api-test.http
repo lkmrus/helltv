@@ -27,6 +27,8 @@ Content-Type: application/json
 
 ### ============================================
 ### 4. ACCOUNTS - Audit balance (check consistency)
+### Note: Audit также запускается автоматически
+### после каждой debit/credit транзакции (асинхронно)
 ### ============================================
 GET {{baseUrl}}/accounts/user/{{userId}}/audit
 Content-Type: application/json
