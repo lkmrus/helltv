@@ -34,9 +34,18 @@ export class TransactionsService {
   /**
    * Calculate balance from transaction history
    * This is the source of truth for account balance
+   * Note: Service account (userId=1) balance is not calculated from history
    */
   async calculateBalanceFromHistory(accountId: number): Promise<Decimal> {
     const account = await this.accountsService.getById(accountId);
+
+    // Service account (external source) - return current balance as-is
+    if (account.userId === 1) {
+      this.logger.log(
+        `[AUDIT] Account ${accountId} is SERVICE account, using current balance: ${account.balance.toNumber()}`,
+      );
+      return account.balance;
+    }
 
     const transactions = await this.prisma.transaction.findMany({
       where: {
@@ -99,6 +108,7 @@ export class TransactionsService {
       fromAccountId,
       toAccountId,
       amount,
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
       meta,
       userId,
       productId,
