@@ -355,12 +355,13 @@
                     </select>
                 </div>
                 <div class="config-item">
-                    <label>Product ID</label>
-                    <input v-model.number="config.productId" type="number">
-                </div>
-                <div class="config-item">
-                    <label>Default Amount ($)</label>
-                    <input v-model.number="config.defaultAmount" type="number" step="0.01">
+                    <label>Product</label>
+                    <select v-model.number="config.productId">
+                        <option disabled value="">Loading...</option>
+                        <option v-for="product in products" :key="product.id" :value="product.id">
+                            {{ product.title }} - ${{ product.price }}
+                        </option>
+                    </select>
                 </div>
             </div>
         </div>
@@ -556,11 +557,11 @@
             data() {
                 return {
                     users: [],
+                    products: [],
                     config: {
                         baseUrl: 'http://localhost:3050',
                         userId: 2,
-                        productId: 1,
-                        defaultAmount: 500
+                        productId: 1
                     },
                     forms: {
                         credit: { amount: 500 },
@@ -569,6 +570,7 @@
                     },
                     loading: {
                         users: false,
+                        productsDropdown: false,
                         products: false,
                         balance: false,
                         history: false,
@@ -596,8 +598,17 @@
                     return this.config.userId === 1;
                 }
             },
+            watch: {
+                'config.userId'() {
+                    // Auto-reload history when user changes
+                    this.getHistory();
+                    this.getBalance();
+                }
+            },
             mounted() {
                 this.loadUsers();
+                this.loadProductsForDropdown();
+                this.getHistory();
             },
             methods: {
                 async loadUsers() {
@@ -627,6 +638,19 @@
                         ];
                     } finally {
                         this.loading.users = false;
+                    }
+                },
+
+                async loadProductsForDropdown() {
+                    this.loading.productsDropdown = true;
+                    try {
+                        const response = await fetch(`${this.config.baseUrl}/products`);
+                        this.products = await response.json();
+                    } catch (error) {
+                        console.error('Failed to load products:', error);
+                        this.products = [];
+                    } finally {
+                        this.loading.productsDropdown = false;
                     }
                 },
 
