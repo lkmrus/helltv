@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HellTV Payment Service - API Tester</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 15px;
+        }
+
+        #app {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 2em;
+            margin-bottom: 5px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1em;
+        }
+
+        .config-panel {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            margin-bottom: 15px;
+        }
+
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 12px;
+        }
+
+        .config-item {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .config-item label {
+            color: #666;
+            font-size: 0.85em;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .config-item input,
+        .config-item select {
+            padding: 8px 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 0.95em;
+            transition: all 0.3s;
+        }
+
+        .config-item input:focus,
+        .config-item select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .service-badge {
+            display: inline-block;
+            background: #fbbf24;
+            color: #78350f;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            font-weight: bold;
+            margin-left: 8px;
+        }
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 15px;
+        }
+
+        .left-column {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .api-card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            transition: transform 0.2s;
+        }
+
+        .api-card:hover {
+            transform: translateY(-2px);
+        }
+
+        .api-card-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .method-badge {
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: bold;
+            color: white;
+        }
+
+        .method-GET {
+            background: #10b981;
+        }
+
+        .method-POST {
+            background: #3b82f6;
+        }
+
+        .api-title {
+            color: #333;
+            font-size: 1em;
+            font-weight: 600;
+            flex: 1;
+        }
+
+        .input-group {
+            margin-bottom: 10px;
+        }
+
+        .input-group label {
+            display: block;
+            color: #666;
+            font-size: 0.8em;
+            margin-bottom: 4px;
+            font-weight: 600;
+        }
+
+        .input-group input {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 0.9em;
+            transition: all 0.3s;
+        }
+
+        .input-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .btn {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .response-box {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 0.8em;
+            max-height: 200px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        .response-success {
+            background: #d1fae5;
+            border: 2px solid #10b981;
+            color: #065f46;
+        }
+
+        .response-error {
+            background: #fee2e2;
+            border: 2px solid #ef4444;
+            color: #991b1b;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .status-200 {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status-400, .status-500 {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        /* Transaction History Table */
+        .history-table-container {
+            max-height: 500px;
+            overflow-y: auto;
+            margin-top: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+        }
+
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85em;
+        }
+
+        .history-table thead {
+            position: sticky;
+            top: 0;
+            background: #f3f4f6;
+            z-index: 10;
+        }
+
+        .history-table th {
+            padding: 10px 8px;
+            text-align: left;
+            font-weight: 600;
+            color: #374151;
+            border-bottom: 2px solid #d1d5db;
+        }
+
+        .history-table td {
+            padding: 8px;
+            border-bottom: 1px solid #e5e7eb;
+            color: #4b5563;
+        }
+
+        .history-table tbody tr:hover {
+            background: #f9fafb;
+        }
+
+        .tx-type {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: bold;
+        }
+
+        .tx-CREDIT {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .tx-DEBIT {
+            background: #fecaca;
+            color: #991b1b;
+        }
+
+        .tx-state {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+        }
+
+        .tx-COMPLETED {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+
+        @media (max-width: 1200px) {
+            .content-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.5em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <h1>🎬 HellTV Payment Service</h1>
+            <p>API Testing Interface</p>
+        </div>
+
+        <div class="config-panel">
+            <div class="config-grid">
+                <div class="config-item">
+                    <label>Base URL</label>
+                    <input v-model="config.baseUrl" type="text">
+                </div>
+                <div class="config-item">
+                    <label>
+                        User
+                        <span v-if="isServiceAccount" class="service-badge">SERVICE ACCOUNT</span>
+                    </label>
+                    <select v-model.number="config.userId">
+                        <option disabled value="">Loading...</option>
+                        <option v-for="user in users" :key="user.id" :value="user.id">
+                            {{ user.id }} - {{ user.email }} ({{ user.role }})
+                        </option>
+                    </select>
+                </div>
+                <div class="config-item">
+                    <label>Product ID</label>
+                    <input v-model.number="config.productId" type="number">
+                </div>
+                <div class="config-item">
+                    <label>Default Amount ($)</label>
+                    <input v-model.number="config.defaultAmount" type="number" step="0.01">
+                </div>
+            </div>
+        </div>
+
+        <div class="content-grid">
+            <!-- Left Column: Actions -->
+            <div class="left-column">
+                <!-- Products -->
+                <div class="api-card">
+                    <div class="api-card-header">
+                        <span class="method-badge method-GET">GET</span>
+                        <span class="api-title">Products</span>
+                    </div>
+                    <button class="btn btn-primary" @click="getProducts" :disabled="loading.products">
+                        {{ loading.products ? 'Loading...' : 'Get Products' }}
+                    </button>
+                    <div v-if="responses.products" class="response-box" :class="responses.products.success ? 'response-success' : 'response-error'">
+                        <span v-if="responses.products.status" class="status-badge" :class="`status-${responses.products.status}`">
+                            {{ responses.products.status }}
+                        </span>
+                        {{ responses.products.data }}
+                    </div>
+                </div>
+
+                <!-- Get Balance -->
+                <div class="api-card">
+                    <div class="api-card-header">
+                        <span class="method-badge method-GET">GET</span>
+                        <span class="api-title">Balance</span>
+                    </div>
+                    <button class="btn btn-primary" @click="getBalance" :disabled="loading.balance">
+                        {{ loading.balance ? 'Loading...' : 'Get Balance' }}
+                    </button>
+                    <div v-if="responses.balance" class="response-box" :class="responses.balance.success ? 'response-success' : 'response-error'">
+                        <span v-if="responses.balance.status" class="status-badge" :class="`status-${responses.balance.status}`">
+                            {{ responses.balance.status }}
+                        </span>
+                        {{ responses.balance.data }}
+                    </div>
+                </div>
+
+                <!-- Audit Balance -->
+                <div class="api-card">
+                    <div class="api-card-header">
+                        <span class="method-badge method-GET">GET</span>
+                        <span class="api-title">Audit Balance</span>
+                    </div>
+                    <button class="btn btn-primary" @click="auditBalance" :disabled="loading.audit">
+                        {{ loading.audit ? 'Loading...' : 'Audit Balance' }}
+                    </button>
+                    <div v-if="responses.audit" class="response-box" :class="responses.audit.success ? 'response-success' : 'response-error'">
+                        <span v-if="responses.audit.status" class="status-badge" :class="`status-${responses.audit.status}`">
+                            {{ responses.audit.status }}
+                        </span>
+                        {{ responses.audit.data }}
+                    </div>
+                </div>
+
+                <!-- Credit Balance -->
+                <div class="api-card" v-if="!isServiceAccount">
+                    <div class="api-card-header">
+                        <span class="method-badge method-POST">POST</span>
+                        <span class="api-title">Credit Balance</span>
+                    </div>
+                    <div class="input-group">
+                        <label>Amount ($)</label>
+                        <input v-model.number="forms.credit.amount" type="number" step="0.01">
+                    </div>
+                    <button class="btn btn-primary" @click="creditBalance" :disabled="loading.credit">
+                        {{ loading.credit ? 'Loading...' : 'Credit' }}
+                    </button>
+                    <div v-if="responses.credit" class="response-box" :class="responses.credit.success ? 'response-success' : 'response-error'">
+                        <span v-if="responses.credit.status" class="status-badge" :class="`status-${responses.credit.status}`">
+                            {{ responses.credit.status }}
+                        </span>
+                        {{ responses.credit.data }}
+                    </div>
+                </div>
+
+                <!-- Debit Balance -->
+                <div class="api-card" v-if="!isServiceAccount">
+                    <div class="api-card-header">
+                        <span class="method-badge method-POST">POST</span>
+                        <span class="api-title">Debit Balance</span>
+                    </div>
+                    <div class="input-group">
+                        <label>Amount ($)</label>
+                        <input v-model.number="forms.debit.amount" type="number" step="0.01">
+                    </div>
+                    <button class="btn btn-primary" @click="debitBalance" :disabled="loading.debit">
+                        {{ loading.debit ? 'Loading...' : 'Debit' }}
+                    </button>
+                    <div v-if="responses.debit" class="response-box" :class="responses.debit.success ? 'response-success' : 'response-error'">
+                        <span v-if="responses.debit.status" class="status-badge" :class="`status-${responses.debit.status}`">
+                            {{ responses.debit.status }}
+                        </span>
+                        {{ responses.debit.data }}
+                    </div>
+                </div>
+
+                <!-- Debit with Product -->
+                <div class="api-card" v-if="!isServiceAccount">
+                    <div class="api-card-header">
+                        <span class="method-badge method-POST">POST</span>
+                        <span class="api-title">Debit + Product</span>
+                    </div>
+                    <div class="input-group">
+                        <label>Amount ($)</label>
+                        <input v-model.number="forms.debitProduct.amount" type="number" step="0.01">
+                    </div>
+                    <button class="btn btn-primary" @click="debitWithProduct" :disabled="loading.debitProduct">
+                        {{ loading.debitProduct ? 'Loading...' : 'Debit + Order' }}
+                    </button>
+                    <div v-if="responses.debitProduct" class="response-box" :class="responses.debitProduct.success ? 'response-success' : 'response-error'">
+                        <span v-if="responses.debitProduct.status" class="status-badge" :class="`status-${responses.debitProduct.status}`">
+                            {{ responses.debitProduct.status }}
+                        </span>
+                        {{ responses.debitProduct.data }}
+                    </div>
+                </div>
+
+                <!-- Create Order -->
+                <div class="api-card" v-if="!isServiceAccount">
+                    <div class="api-card-header">
+                        <span class="method-badge method-POST">POST</span>
+                        <span class="api-title">Purchase Product</span>
+                    </div>
+                    <button class="btn btn-primary" @click="createOrder" :disabled="loading.order">
+                        {{ loading.order ? 'Loading...' : 'Purchase' }}
+                    </button>
+                    <div v-if="responses.order" class="response-box" :class="responses.order.success ? 'response-success' : 'response-error'">
+                        <span v-if="responses.order.status" class="status-badge" :class="`status-${responses.order.status}`">
+                            {{ responses.order.status }}
+                        </span>
+                        {{ responses.order.data }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Transaction History -->
+            <div class="api-card" style="height: fit-content;">
+                <div class="api-card-header">
+                    <span class="method-badge method-GET">GET</span>
+                    <span class="api-title">Transaction History</span>
+                </div>
+                <button class="btn btn-primary" @click="getHistory" :disabled="loading.history">
+                    {{ loading.history ? 'Loading...' : 'Load History' }}
+                </button>
+                
+                <div v-if="responses.history && responses.history.success" class="history-table-container">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Type</th>
+                                <th>State</th>
+                                <th>Amount Out</th>
+                                <th>Amount In</th>
+                                <th>From</th>
+                                <th>To</th>
+                                <th>Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="tx in transactionHistory" :key="tx.id">
+                                <td>{{ tx.id.substring(0, 8) }}...</td>
+                                <td><span class="tx-type" :class="`tx-${tx.type}`">{{ tx.type }}</span></td>
+                                <td><span class="tx-state" :class="`tx-${tx.state}`">{{ tx.state }}</span></td>
+                                <td>${{ tx.amountOut }}</td>
+                                <td>${{ tx.amountIn }}</td>
+                                <td>{{ tx.accountAId }}</td>
+                                <td>{{ tx.accountBId }}</td>
+                                <td>{{ formatDate(tx.createdAt) }}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div v-else-if="responses.history && !responses.history.success" class="response-box response-error">
+                    <span v-if="responses.history.status" class="status-badge" :class="`status-${responses.history.status}`">
+                        {{ responses.history.status }}
+                    </span>
+                    {{ responses.history.data }}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    users: [],
+                    config: {
+                        baseUrl: 'http://localhost:3050',
+                        userId: 2,
+                        productId: 1,
+                        defaultAmount: 500
+                    },
+                    forms: {
+                        credit: { amount: 500 },
+                        debit: { amount: 50 },
+                        debitProduct: { amount: 100 }
+                    },
+                    loading: {
+                        users: false,
+                        products: false,
+                        balance: false,
+                        history: false,
+                        audit: false,
+                        credit: false,
+                        debit: false,
+                        debitProduct: false,
+                        order: false
+                    },
+                    responses: {
+                        products: null,
+                        balance: null,
+                        history: null,
+                        audit: null,
+                        credit: null,
+                        debit: null,
+                        debitProduct: null,
+                        order: null
+                    },
+                    transactionHistory: []
+                };
+            },
+            computed: {
+                isServiceAccount() {
+                    return this.config.userId === 1;
+                }
+            },
+            mounted() {
+                this.loadUsers();
+            },
+            methods: {
+                async loadUsers() {
+                    this.loading.users = true;
+                    try {
+                        const response = await fetch(`${this.config.baseUrl}/users`);
+                        const apiUsers = await response.json();
+                        
+                        // Add hardcoded SERVICE account (id=1) at the beginning
+                        this.users = [
+                            {
+                                id: 1,
+                                email: 'service@helltv.store',
+                                role: 'SERVICE'
+                            },
+                            ...apiUsers
+                        ];
+                    } catch (error) {
+                        console.error('Failed to load users:', error);
+                        // Fallback: only SERVICE account if API fails
+                        this.users = [
+                            {
+                                id: 1,
+                                email: 'service@helltv.store',
+                                role: 'SERVICE'
+                            }
+                        ];
+                    } finally {
+                        this.loading.users = false;
+                    }
+                },
+
+                formatDate(dateString) {
+                    const date = new Date(dateString);
+                    return date.toLocaleString('ru-RU', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                },
+
+                async makeRequest(key, method, url, body = null) {
+                    this.loading[key] = true;
+                    this.responses[key] = null;
+
+                    try {
+                        const options = {
+                            method,
+                            headers: {
+                                'Content-Type': 'application/json'
+                            }
+                        };
+
+                        if (body) {
+                            options.body = JSON.stringify(body);
+                        }
+
+                        const response = await fetch(url, options);
+                        const data = await response.json();
+
+                        // Special handling for history
+                        if (key === 'history' && response.ok) {
+                            this.transactionHistory = data;
+                        }
+
+                        this.responses[key] = {
+                            success: response.ok,
+                            status: response.status,
+                            data: JSON.stringify(data, null, 2)
+                        };
+                    } catch (error) {
+                        let errorMessage = `Error: ${error.message}`;
+                        
+                        if (error.message.includes('Failed to fetch') || error.name === 'TypeError') {
+                            errorMessage = `❌ Не удалось подключиться к серверу!\n\nВозможные причины:\n1. Сервер не запущен (запустите: npm run start:dev)\n2. Неверный URL: ${this.config.baseUrl}\n3. CORS не настроен (перезапустите сервер после изменений)\n\nОригинальная ошибка: ${error.message}`;
+                        }
+                        
+                        this.responses[key] = {
+                            success: false,
+                            status: 0,
+                            data: errorMessage
+                        };
+                    } finally {
+                        this.loading[key] = false;
+                    }
+                },
+
+                getProducts() {
+                    this.makeRequest('products', 'GET', `${this.config.baseUrl}/products`);
+                },
+
+                getBalance() {
+                    this.makeRequest('balance', 'GET', `${this.config.baseUrl}/accounts/user/${this.config.userId}`);
+                },
+
+                getHistory() {
+                    this.makeRequest('history', 'GET', `${this.config.baseUrl}/accounts/user/${this.config.userId}/history`);
+                },
+
+                auditBalance() {
+                    this.makeRequest('audit', 'GET', `${this.config.baseUrl}/accounts/user/${this.config.userId}/audit`);
+                },
+
+                creditBalance() {
+                    this.makeRequest('credit', 'POST', `${this.config.baseUrl}/accounts/user/${this.config.userId}/credit`, {
+                        amount: this.forms.credit.amount
+                    });
+                },
+
+                debitBalance() {
+                    this.makeRequest('debit', 'POST', `${this.config.baseUrl}/accounts/user/${this.config.userId}/debit`, {
+                        amount: this.forms.debit.amount
+                    });
+                },
+
+                debitWithProduct() {
+                    this.makeRequest('debitProduct', 'POST', `${this.config.baseUrl}/accounts/user/${this.config.userId}/debit`, {
+                        amount: this.forms.debitProduct.amount,
+                        productId: this.config.productId
+                    });
+                },
+
+                createOrder() {
+                    this.makeRequest('order', 'POST', `${this.config.baseUrl}/orders/create`, {
+                        userId: this.config.userId,
+                        productId: this.config.productId
+                    });
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

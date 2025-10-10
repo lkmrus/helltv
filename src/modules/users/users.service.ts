@@ -52,11 +52,33 @@ export class UsersService {
     return user;
   }
 
+  async findAll(): Promise<User[]> {
+    const cacheKey = 'users:all';
+    const cached = await this.cacheManager.get<User[]>(cacheKey);
+
+    if (cached) {
+      return cached;
+    }
+
+    const users = await this.prisma.user.findMany({
+      where: {
+        NOT: {
+          role: 'SERVICE',
+        },
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    await this.cacheManager.set(cacheKey, users, USER_CACHE_TTL);
+    return users;
+  }
+
   async getServiceUser(): Promise<User> {
     return this.findById(1); // Service user always has id=1
   }
 
   async invalidateCache(userId: number): Promise<void> {
     await this.cacheManager.del(`user:id:${userId}`);
+    await this.cacheManager.del('users:all');
   }
 }

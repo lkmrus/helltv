@@ -8,25 +8,32 @@
 @productId = 1
 
 ### ============================================
-### 1. PRODUCTS - Get all products
+### 1. USERS - Get all users
+### Note: Excludes SERVICE account (role=SERVICE)
+### ============================================
+GET {{baseUrl}}/users
+Content-Type: application/json
+
+### ============================================
+### 2. PRODUCTS - Get all products
 ### ============================================
 GET {{baseUrl}}/products
 Content-Type: application/json
 
 ### ============================================
-### 2. ACCOUNTS - Get user balance
+### 3. ACCOUNTS - Get user balance
 ### ============================================
 GET {{baseUrl}}/accounts/user/{{userId}}
 Content-Type: application/json
 
 ### ============================================
-### 3. ACCOUNTS - Get transaction history
+### 4. ACCOUNTS - Get transaction history
 ### ============================================
 GET {{baseUrl}}/accounts/user/{{userId}}/history
 Content-Type: application/json
 
 ### ============================================
-### 4. ACCOUNTS - Audit balance (check consistency)
+### 5. ACCOUNTS - Audit balance (check consistency)
 ### Note: Audit также запускается автоматически
 ### после каждой debit/credit транзакции (асинхронно)
 ### ============================================
@@ -34,7 +41,7 @@ GET {{baseUrl}}/accounts/user/{{userId}}/audit
 Content-Type: application/json
 
 ### ============================================
-### 5. ACCOUNTS - Credit balance (пополнение)
+### 6. ACCOUNTS - Credit balance (пополнение)
 ### Description: Add money to user account from service
 ### ============================================
 POST {{baseUrl}}/accounts/user/{{userId}}/credit
@@ -45,7 +52,7 @@ Content-Type: application/json
 }
 
 ### ============================================
-### 6. ACCOUNTS - Debit balance (списание)
+### 7. ACCOUNTS - Debit balance (списание)
 ### Description: Remove money from user account
 ### ============================================
 POST {{baseUrl}}/accounts/user/{{userId}}/debit
@@ -56,7 +63,7 @@ Content-Type: application/json
 }
 
 ### ============================================
-### 7. ACCOUNTS - Debit with product purchase
+### 8. ACCOUNTS - Debit with product purchase
 ### Description: Debit + create Order atomically
 ### ============================================
 POST {{baseUrl}}/accounts/user/{{userId}}/debit
@@ -68,7 +75,7 @@ Content-Type: application/json
 }
 
 ### ============================================
-### 8. ORDERS - Purchase product from balance
+### 9. ORDERS - Purchase product from balance
 ### Description: Alternative way to purchase (uses debit internally)
 ### ============================================
 POST {{baseUrl}}/orders/create
@@ -80,14 +87,14 @@ Content-Type: application/json
 }
 
 ### ============================================
-### 9. ORDERS - Get order details
+### 10. ORDERS - Get order details
 ### Replace {orderId} with actual order ID from previous response
 ### ============================================
 # GET {{baseUrl}}/orders/{orderId}
 # Content-Type: application/json
 
 ### ============================================
-### 10. TRANSACTIONS - Get transaction details
+### 11. TRANSACTIONS - Get transaction details
 ### Replace {transactionId} with actual transaction ID
 ### ============================================
 # GET {{baseUrl}}/transactions/{transactionId}
